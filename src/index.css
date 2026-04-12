@@ -11,10 +11,17 @@
   --line: #e9ecef;
 }
 
+.dark {
+  --bg: #0a0a0a;
+  --ink: #f8f9fa;
+  --line: #1f1f1f;
+}
+
 body {
   background-color: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .data-row {

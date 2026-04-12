@@ -46,6 +46,16 @@ db.exec(`
     total_purchases REAL DEFAULT 0,
     FOREIGN KEY(shift_id) REFERENCES shifts(id)
   );
+
+  CREATE TABLE IF NOT EXISTS carton_calculations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shift_id INTEGER,
+    product_id INTEGER,
+    units_per_carton REAL DEFAULT 0,
+    carton_count REAL DEFAULT 0,
+    FOREIGN KEY(shift_id) REFERENCES shifts(id),
+    FOREIGN KEY(product_id) REFERENCES products(id)
+  );
 `);
 
 // Seed initial products if empty
@@ -192,13 +202,65 @@ async function startServer() {
 
   app.get("/api/reports", (req, res) => {
     const reports = db.prepare(`
-      SELECT s.*, ss.total_revenue, ss.total_purchases
+      SELECT 
+        s.*, 
+        ss.total_revenue, 
+        ss.total_purchases,
+        (SELECT COUNT(*) FROM inventory_data WHERE shift_id = s.id AND sales_qty > 0) as items_sold_count,
+        (SELECT SUM(ABS(actual_qty - (start_qty + purchase_qty - sales_qty - hospitality_qty))) 
+         FROM inventory_data 
+         WHERE shift_id = s.id AND actual_qty != 0) as total_discrepancy
       FROM shifts s
       LEFT JOIN shift_summary ss ON s.id = ss.shift_id
       WHERE s.status = 'closed'
       ORDER BY s.id DESC
     `).all();
     res.json(reports);
+  });
+
+  app.get("/api/reports/:id", (req, res) => {
+    const { id } = req.params;
+    const shift = db.prepare("SELECT * FROM shifts WHERE id = ?").get(id);
+    if (!shift) return res.status(404).json({ error: "Shift not found" });
+
+    const summary = db.prepare("SELECT * FROM shift_summary WHERE shift_id = ?").get(id);
+    const inventory = db.prepare(`
+      SELECT id.*, p.name, p.category, p.price
+      FROM inventory_data id
+      JOIN products p ON id.product_id = p.id
+      WHERE id.shift_id = ?
+    `).all(id);
+
+    res.json({ shift, summary, inventory });
+  });
+
+  app.get("/api/carton-calculations/:shiftId/:productId", (req, res) => {
+    const { shiftId, productId } = req.params;
+    const data = db.prepare("SELECT * FROM carton_calculations WHERE shift_id = ? AND product_id = ?")
+      .all(shiftId, productId);
+    res.json(data);
+  });
+
+  app.post("/api/carton-calculations", (req, res) => {
+    const { shiftId, productId, rows } = req.body;
+    
+    // Delete existing for this product/shift
+    db.prepare("DELETE FROM carton_calculations WHERE shift_id = ? AND product_id = ?")
+      .run(shiftId, productId);
+
+    const insert = db.prepare("INSERT INTO carton_calculations (shift_id, product_id, units_per_carton, carton_count) VALUES (?, ?, ?, ?)");
+    
+    let total = 0;
+    for (const row of rows) {
+      insert.run(shiftId, productId, row.units_per_carton, row.carton_count);
+      total += (row.units_per_carton * row.carton_count);
+    }
+
+    // Update the inventory_data purchase_qty
+    db.prepare("UPDATE inventory_data SET purchase_qty = ? WHERE shift_id = ? AND product_id = ?")
+      .run(total, shiftId, productId);
+
+    res.json({ success: true, total });
   });
 
   // Vite middleware
