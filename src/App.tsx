@@ -404,20 +404,24 @@ export default function App() {
                         return acc;
                       }, { revenue: 0, purchases: 0 });
 
+                      const isHospitalityCat = cat === 'ضيافات';
+
                       return (
                         <div key={cat} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/30">
                             <div className="flex items-center gap-3">
-                              <div className="w-2 h-6 bg-black rounded-full" />
+                              <div className={cn("w-2 h-6 rounded-full", isHospitalityCat ? "bg-purple-500" : "bg-black")} />
                               <h3 className="font-bold text-lg text-gray-800">
-                                {cat === 'مخزون' ? 'المخزون العام' : cat === 'إفطار' ? 'وجبة الإفطار' : 'وجبة الغداء'}
+                                {cat === 'مخزون' ? 'المخزون العام' : cat === 'إفطار' ? 'وجبة الإفطار' : cat === 'غداء' ? 'وجبة الغداء' : 'قسم الضيافات'}
                               </h3>
                             </div>
                             <div className="flex items-center gap-6">
-                              <div className="flex flex-col items-end">
-                                <span className="text-[10px] text-gray-400 uppercase font-bold">إيراد القسم</span>
-                                <span className="text-sm font-mono font-bold text-green-600">{catTotals.revenue.toLocaleString()} ج.م</span>
-                              </div>
+                              {!isHospitalityCat && (
+                                <div className="flex flex-col items-end">
+                                  <span className="text-[10px] text-gray-400 uppercase font-bold">إيراد القسم</span>
+                                  <span className="text-sm font-mono font-bold text-green-600">{catTotals.revenue.toLocaleString()} ج.م</span>
+                                </div>
+                              )}
                               {saving && <span className="text-[10px] font-mono text-gray-400 animate-pulse">جاري الحفظ...</span>}
                             </div>
                           </div>
@@ -428,15 +432,17 @@ export default function App() {
                                   <th className="px-6 py-3 col-header">الصنف</th>
                                   <th className="px-4 py-3 col-header text-center">بداية</th>
                                   <th className="px-4 py-3 col-header text-center">مشتريات</th>
-                                  <th className="px-4 py-3 col-header text-center">مبيعات</th>
-                                  <th className="px-4 py-3 col-header text-center">ضيافات</th>
+                                  {!isHospitalityCat && <th className="px-4 py-3 col-header text-center">مبيعات</th>}
+                                  {isHospitalityCat && <th className="px-4 py-3 col-header text-center">المنصرف (ضيافة)</th>}
                                   <th className="px-4 py-3 col-header text-center">الفعلي</th>
                                   <th className="px-4 py-3 col-header text-center">المتوقع</th>
-                                  <th className="px-6 py-3 col-header text-left">الإيراد</th>
+                                  {!isHospitalityCat && <th className="px-6 py-3 col-header text-left">الإيراد</th>}
                                 </tr>
                               </thead>
                               <tbody>
                                 {items.map((item) => {
+                                  // For hospitality category, we use hospitality_qty as the main "usage" field
+                                  // For others, we hide hospitality_qty to keep it "separate"
                                   const expected = item.start_qty + item.purchase_qty - item.sales_qty - item.hospitality_qty;
                                   const revenue = item.sales_qty * item.price;
                                   const isDiscrepancy = item.actual_qty !== 0 && item.actual_qty !== expected;
@@ -457,21 +463,25 @@ export default function App() {
                                           onBlur={() => updateInventoryItem(item)}
                                         />
                                       </td>
-                                      <td className="px-4 py-4">
-                                        <InventoryInput 
-                                          value={item.sales_qty} 
-                                          onChange={(v) => handleInputChange(item.id, 'sales_qty', v)}
-                                          onBlur={() => updateInventoryItem(item)}
-                                          highlight
-                                        />
-                                      </td>
-                                      <td className="px-4 py-4">
-                                        <InventoryInput 
-                                          value={item.hospitality_qty} 
-                                          onChange={(v) => handleInputChange(item.id, 'hospitality_qty', v)}
-                                          onBlur={() => updateInventoryItem(item)}
-                                        />
-                                      </td>
+                                      {!isHospitalityCat ? (
+                                        <td className="px-4 py-4">
+                                          <InventoryInput 
+                                            value={item.sales_qty} 
+                                            onChange={(v) => handleInputChange(item.id, 'sales_qty', v)}
+                                            onBlur={() => updateInventoryItem(item)}
+                                            highlight
+                                          />
+                                        </td>
+                                      ) : (
+                                        <td className="px-4 py-4">
+                                          <InventoryInput 
+                                            value={item.hospitality_qty} 
+                                            onChange={(v) => handleInputChange(item.id, 'hospitality_qty', v)}
+                                            onBlur={() => updateInventoryItem(item)}
+                                            highlight
+                                          />
+                                        </td>
+                                      )}
                                       <td className="px-4 py-4">
                                         <InventoryInput 
                                           value={item.actual_qty} 
@@ -486,9 +496,11 @@ export default function App() {
                                       )}>
                                         {expected}
                                       </td>
-                                      <td className="px-6 py-4 text-left data-value font-bold text-sm">
-                                        {revenue.toLocaleString()}
-                                      </td>
+                                      {!isHospitalityCat && (
+                                        <td className="px-6 py-4 text-left data-value font-bold text-sm">
+                                          {revenue.toLocaleString()}
+                                        </td>
+                                      )}
                                     </tr>
                                   );
                                 })}
@@ -788,6 +800,7 @@ export default function App() {
                       <option value="مخزون">مخزون</option>
                       <option value="إفطار">إفطار</option>
                       <option value="غداء">غداء</option>
+                      <option value="ضيافات">ضيافات</option>
                     </select>
                   </div>
                   <div className="space-y-2">
