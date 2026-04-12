@@ -253,7 +253,19 @@ export default function App() {
     const numValue = parseFloat(value) || 0;
     setInventory(prev => prev.map(item => {
       if (item.id === id) {
-        const updated = { ...item, [field]: numValue };
+        let updated = { ...item, [field]: numValue };
+        
+        // Auto-calculate sales or hospitality based on actual count
+        // Formula: Sales = (Start + Purchase) - Actual
+        if (field === 'actual_qty' || field === 'purchase_qty') {
+          const calculatedUsage = Math.max(0, (updated.start_qty + updated.purchase_qty) - updated.actual_qty);
+          if (updated.category === 'ضيافات') {
+            updated.hospitality_qty = calculatedUsage;
+          } else {
+            updated.sales_qty = calculatedUsage;
+          }
+        }
+        
         return updated;
       }
       return item;
@@ -464,22 +476,16 @@ export default function App() {
                                         />
                                       </td>
                                       {!isHospitalityCat ? (
-                                        <td className="px-4 py-4">
-                                          <InventoryInput 
-                                            value={item.sales_qty} 
-                                            onChange={(v) => handleInputChange(item.id, 'sales_qty', v)}
-                                            onBlur={() => updateInventoryItem(item)}
-                                            highlight
-                                          />
+                                        <td className="px-4 py-4 text-center">
+                                          <span className="font-mono font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-md">
+                                            {item.sales_qty}
+                                          </span>
                                         </td>
                                       ) : (
-                                        <td className="px-4 py-4">
-                                          <InventoryInput 
-                                            value={item.hospitality_qty} 
-                                            onChange={(v) => handleInputChange(item.id, 'hospitality_qty', v)}
-                                            onBlur={() => updateInventoryItem(item)}
-                                            highlight
-                                          />
+                                        <td className="px-4 py-4 text-center">
+                                          <span className="font-mono font-bold text-purple-600 bg-purple-50 px-3 py-1 rounded-md">
+                                            {item.hospitality_qty}
+                                          </span>
                                         </td>
                                       )}
                                       <td className="px-4 py-4">
@@ -487,7 +493,7 @@ export default function App() {
                                           value={item.actual_qty} 
                                           onChange={(v) => handleInputChange(item.id, 'actual_qty', v)}
                                           onBlur={() => updateInventoryItem(item)}
-                                          error={isDiscrepancy}
+                                          highlight
                                         />
                                       </td>
                                       <td className={cn(
