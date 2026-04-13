@@ -16,7 +16,8 @@ db.exec(`
     name TEXT NOT NULL,
     category TEXT NOT NULL,
     price REAL DEFAULT 0,
-    unit TEXT DEFAULT 'وحدة'
+    unit TEXT DEFAULT 'وحدة',
+    ratio REAL DEFAULT 1.0
   );
 
   CREATE TABLE IF NOT EXISTS shifts (
@@ -32,6 +33,7 @@ db.exec(`
     product_id INTEGER,
     start_qty REAL DEFAULT 0,
     purchase_qty REAL DEFAULT 0,
+    actual_purchase_qty REAL DEFAULT 0,
     sales_qty REAL DEFAULT 0,
     hospitality_qty REAL DEFAULT 0,
     actual_qty REAL DEFAULT 0,
@@ -95,6 +97,14 @@ if (productCount.count === 0) {
   }
 }
 
+// Migration: Add ratio to products and actual_purchase_qty to inventory_data if they don't exist
+try {
+  db.prepare("ALTER TABLE products ADD COLUMN ratio REAL DEFAULT 1.0").run();
+} catch (e) {}
+try {
+  db.prepare("ALTER TABLE inventory_data ADD COLUMN actual_purchase_qty REAL DEFAULT 0").run();
+} catch (e) {}
+
 // Migration: Ensure existing products use Arabic categories
 db.prepare("UPDATE products SET category = 'مخزون' WHERE category = 'inventory'").run();
 db.prepare("UPDATE products SET category = 'إفطار' WHERE category = 'breakfast'").run();
@@ -111,13 +121,13 @@ async function startServer() {
   });
 
   app.post("/api/products", (req, res) => {
-    const { name, category, price, unit, id } = req.body;
+    const { name, category, price, unit, ratio, id } = req.body;
     if (id) {
-      db.prepare("UPDATE products SET name = ?, category = ?, price = ?, unit = ? WHERE id = ?")
-        .run(name, category, price, unit, id);
+      db.prepare("UPDATE products SET name = ?, category = ?, price = ?, unit = ?, ratio = ? WHERE id = ?")
+        .run(name, category, price, unit, ratio, id);
     } else {
-      db.prepare("INSERT INTO products (name, category, price, unit) VALUES (?, ?, ?, ?)")
-        .run(name, category, price, unit);
+      db.prepare("INSERT INTO products (name, category, price, unit, ratio) VALUES (?, ?, ?, ?, ?)")
+        .run(name, category, price, unit, ratio);
     }
     res.json({ success: true });
   });
@@ -130,7 +140,7 @@ async function startServer() {
     }
 
     const data = db.prepare(`
-      SELECT i.*, p.name, p.category, p.price, p.unit 
+      SELECT i.*, p.name, p.category, p.price, p.unit, p.ratio 
       FROM inventory_data i
       JOIN products p ON i.product_id = p.id
       WHERE i.shift_id = ?
@@ -185,12 +195,12 @@ async function startServer() {
   });
 
   app.post("/api/inventory/update", (req, res) => {
-    const { id, purchase_qty, sales_qty, hospitality_qty, actual_qty } = req.body;
+    const { id, purchase_qty, actual_purchase_qty, sales_qty, hospitality_qty, actual_qty } = req.body;
     db.prepare(`
       UPDATE inventory_data 
-      SET purchase_qty = ?, sales_qty = ?, hospitality_qty = ?, actual_qty = ?
+      SET purchase_qty = ?, actual_purchase_qty = ?, sales_qty = ?, hospitality_qty = ?, actual_qty = ?
       WHERE id = ?
-    `).run(purchase_qty, sales_qty, hospitality_qty, actual_qty, id);
+    `).run(purchase_qty, actual_purchase_qty, sales_qty, hospitality_qty, actual_qty, id);
     res.json({ success: true });
   });
 
@@ -225,7 +235,7 @@ async function startServer() {
 
     const summary = db.prepare("SELECT * FROM shift_summary WHERE shift_id = ?").get(id);
     const inventory = db.prepare(`
-      SELECT id.*, p.name, p.category, p.price
+      SELECT id.*, p.name, p.category, p.price, p.ratio
       FROM inventory_data id
       JOIN products p ON id.product_id = p.id
       WHERE id.shift_id = ?

@@ -35,6 +35,7 @@ interface Product {
   category: string;
   price: number;
   unit: string;
+  ratio: number;
 }
 
 interface InventoryItem {
@@ -45,8 +46,10 @@ interface InventoryItem {
   category: string;
   price: number;
   unit: string;
+  ratio: number;
   start_qty: number;
   purchase_qty: number;
+  actual_purchase_qty: number;
   sales_qty: number;
   hospitality_qty: number;
   actual_qty: number;
@@ -255,10 +258,15 @@ export default function App() {
       if (item.id === id) {
         let updated = { ...item, [field]: numValue };
         
+        // Auto-calculate actual purchase based on ratio
+        if (field === 'purchase_qty') {
+          updated.actual_purchase_qty = updated.purchase_qty * (updated.ratio || 1);
+        }
+        
         // Auto-calculate sales or hospitality based on actual count
-        // Formula: Sales = (Start + Purchase) - Actual
+        // Formula: Sales = (Start + Actual Purchase) - Actual
         if (field === 'actual_qty' || field === 'purchase_qty') {
-          const calculatedUsage = Math.max(0, (updated.start_qty + updated.purchase_qty) - updated.actual_qty);
+          const calculatedUsage = Math.max(0, (updated.start_qty + updated.actual_purchase_qty) - updated.actual_qty);
           if (updated.category === 'ضيافات') {
             updated.hospitality_qty = calculatedUsage;
           } else {
@@ -275,7 +283,7 @@ export default function App() {
   const totals = useMemo(() => {
     return inventory.reduce((acc, item) => {
       acc.revenue += item.sales_qty * item.price;
-      acc.purchases += item.purchase_qty * item.price;
+      acc.purchases += item.actual_purchase_qty * item.price;
       return acc;
     }, { revenue: 0, purchases: 0 });
   }, [inventory]);
@@ -444,6 +452,8 @@ export default function App() {
                                   <th className="px-6 py-3 col-header">الصنف</th>
                                   <th className="px-4 py-3 col-header text-center">بداية</th>
                                   <th className="px-4 py-3 col-header text-center">مشتريات</th>
+                                  <th className="px-4 py-3 col-header text-center">النسبة</th>
+                                  <th className="px-4 py-3 col-header text-center bg-yellow-50/50">مشتريات فعلية</th>
                                   {!isHospitalityCat && <th className="px-4 py-3 col-header text-center">مبيعات</th>}
                                   {isHospitalityCat && <th className="px-4 py-3 col-header text-center">المنصرف (ضيافة)</th>}
                                   <th className="px-4 py-3 col-header text-center">الفعلي</th>
@@ -455,7 +465,7 @@ export default function App() {
                                 {items.map((item) => {
                                   // For hospitality category, we use hospitality_qty as the main "usage" field
                                   // For others, we hide hospitality_qty to keep it "separate"
-                                  const expected = item.start_qty + item.purchase_qty - item.sales_qty - item.hospitality_qty;
+                                  const expected = item.start_qty + item.actual_purchase_qty - item.sales_qty - item.hospitality_qty;
                                   const revenue = item.sales_qty * item.price;
                                   const isDiscrepancy = item.actual_qty !== 0 && item.actual_qty !== expected;
 
@@ -474,6 +484,12 @@ export default function App() {
                                           onChange={(v) => handleInputChange(item.id, 'purchase_qty', v)}
                                           onBlur={() => updateInventoryItem(item)}
                                         />
+                                      </td>
+                                      <td className="px-4 py-4 text-center text-gray-400 font-mono text-xs">{item.ratio || 1}</td>
+                                      <td className="px-4 py-4 text-center bg-yellow-50/30">
+                                        <span className="font-mono font-bold text-yellow-700">
+                                          {item.actual_purchase_qty}
+                                        </span>
                                       </td>
                                       {!isHospitalityCat ? (
                                         <td className="px-4 py-4 text-center">
@@ -820,6 +836,19 @@ export default function App() {
                       className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">نسبة الصنف (المعامل)</label>
+                  <input 
+                    required
+                    type="number"
+                    step="0.01"
+                    value={editingProduct?.ratio || 1}
+                    onChange={(e) => setEditingProduct(prev => prev ? { ...prev, ratio: parseFloat(e.target.value) || 1 } : null)}
+                    className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
+                  />
+                  <p className="text-[10px] text-gray-400">يستخدم لحساب المشتريات الفعلية (المشتريات × النسبة)</p>
                 </div>
 
                 <div className="pt-4">
