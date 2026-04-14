@@ -139,6 +139,21 @@ async function startServer() {
       return res.json({ shift: null, data: [] });
     }
 
+    // Sync products: Add any products that are in the products table but not in inventory_data for this shift
+    const missingProducts = db.prepare(`
+      SELECT p.id 
+      FROM products p
+      LEFT JOIN inventory_data i ON p.id = i.product_id AND i.shift_id = ?
+      WHERE i.id IS NULL
+    `).all(shift.id) as any[];
+
+    if (missingProducts.length > 0) {
+      const insert = db.prepare("INSERT INTO inventory_data (shift_id, product_id, start_qty) VALUES (?, ?, ?)");
+      for (const p of missingProducts) {
+        insert.run(shift.id, p.id, 0);
+      }
+    }
+
     const data = db.prepare(`
       SELECT i.*, p.name, p.category, p.price, p.unit, p.ratio 
       FROM inventory_data i
@@ -206,6 +221,9 @@ async function startServer() {
 
   app.delete("/api/products/:id", (req, res) => {
     const { id } = req.params;
+    // Delete related data first to maintain integrity
+    db.prepare("DELETE FROM inventory_data WHERE product_id = ?").run(id);
+    db.prepare("DELETE FROM carton_calculations WHERE product_id = ?").run(id);
     db.prepare("DELETE FROM products WHERE id = ?").run(id);
     res.json({ success: true });
   });
@@ -216,10 +234,7 @@ async function startServer() {
         s.*, 
         ss.total_revenue, 
         ss.total_purchases,
-        (SELECT COUNT(*) FROM inventory_data WHERE shift_id = s.id AND sales_qty > 0) as items_sold_count,
-        (SELECT SUM(ABS(actual_qty - (start_qty + purchase_qty - sales_qty - hospitality_qty))) 
-         FROM inventory_data 
-         WHERE shift_id = s.id AND actual_qty != 0) as total_discrepancy
+        (SELECT COUNT(*) FROM inventory_data WHERE shift_id = s.id AND sales_qty > 0) as items_sold_count
       FROM shifts s
       LEFT JOIN shift_summary ss ON s.id = ss.shift_id
       WHERE s.status = 'closed'

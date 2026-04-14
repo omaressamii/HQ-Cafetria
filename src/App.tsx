@@ -23,9 +23,12 @@ import {
   Trash2,
   X,
   Check,
+  Printer,
+  FileSpreadsheet,
   Calculator as CalcIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import * as XLSX from 'xlsx';
 import { cn } from './lib/utils';
 
 // Types
@@ -252,6 +255,36 @@ export default function App() {
     }
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleExportExcel = () => {
+    if (!selectedReport) return;
+
+    const data = selectedReport.inventory.map(item => ({
+      'الصنف': item.name,
+      'الفئة': item.category,
+      'بداية': item.start_qty,
+      'مشتريات': item.purchase_qty,
+      'مشتريات فعلية': item.actual_purchase_qty,
+      'مبيعات': item.sales_qty,
+      'الفعلي': item.actual_qty,
+      'السعر': item.price,
+      'الإيراد': item.sales_qty * item.price
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "تقرير الوردية");
+    
+    // Set RTL for the sheet
+    if(!ws['!views']) ws['!views'] = [];
+    ws['!views'].push({RTL: true});
+
+    XLSX.writeFile(wb, `تقرير_وردية_${selectedReport.shift.id}.xlsx`);
+  };
+
   const handleInputChange = (id: number, field: keyof InventoryItem, value: string) => {
     const numValue = parseFloat(value) || 0;
     setInventory(prev => prev.map(item => {
@@ -457,7 +490,6 @@ export default function App() {
                                   {!isHospitalityCat && <th className="px-4 py-3 col-header text-center">مبيعات</th>}
                                   {isHospitalityCat && <th className="px-4 py-3 col-header text-center">المنصرف (ضيافة)</th>}
                                   <th className="px-4 py-3 col-header text-center">الفعلي</th>
-                                  <th className="px-4 py-3 col-header text-center">المتوقع</th>
                                   {!isHospitalityCat && <th className="px-6 py-3 col-header text-left">الإيراد</th>}
                                 </tr>
                               </thead>
@@ -465,9 +497,7 @@ export default function App() {
                                 {items.map((item) => {
                                   // For hospitality category, we use hospitality_qty as the main "usage" field
                                   // For others, we hide hospitality_qty to keep it "separate"
-                                  const expected = item.start_qty + item.actual_purchase_qty - item.sales_qty - item.hospitality_qty;
                                   const revenue = item.sales_qty * item.price;
-                                  const isDiscrepancy = item.actual_qty !== 0 && item.actual_qty !== expected;
 
                                   return (
                                     <tr key={item.id} className="border-b border-gray-50 data-row group">
@@ -511,12 +541,6 @@ export default function App() {
                                           onBlur={() => updateInventoryItem(item)}
                                           highlight
                                         />
-                                      </td>
-                                      <td className={cn(
-                                        "px-4 py-4 text-center data-value text-sm",
-                                        isDiscrepancy ? "text-red-500 font-bold" : "text-gray-400"
-                                      )}>
-                                        {expected}
                                       </td>
                                       {!isHospitalityCat && (
                                         <td className="px-6 py-4 text-left data-value font-bold text-sm">
@@ -621,7 +645,6 @@ export default function App() {
                       <th className="px-6 py-4 col-header">رقم الوردية</th>
                       <th className="px-6 py-4 col-header">التاريخ والوقت</th>
                       <th className="px-6 py-4 col-header text-center">الأصناف المباعة</th>
-                      <th className="px-6 py-4 col-header text-center">العجز/الزيادة</th>
                       <th className="px-6 py-4 col-header text-left">الإيرادات</th>
                       <th className="px-6 py-4 col-header text-left">المشتريات</th>
                       <th className="px-6 py-4 col-header text-left">الصافي</th>
@@ -641,14 +664,6 @@ export default function App() {
                         <td className="px-6 py-4 text-center">
                           <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-[10px] font-bold">
                             {report.items_sold_count || 0} صنف
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={cn(
-                            "px-2 py-1 rounded-full text-[10px] font-bold",
-                            (report.total_discrepancy || 0) > 0 ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"
-                          )}>
-                            {report.total_discrepancy ? `${report.total_discrepancy} وحدة` : 'لا يوجد'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-left data-value font-bold text-green-600">+{report.total_revenue?.toLocaleString()}</td>
@@ -882,7 +897,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden relative z-10 flex flex-col"
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden relative z-10 flex flex-col print-area"
             >
               <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                 <div>
@@ -893,9 +908,23 @@ export default function App() {
                     إلى {selectedReport.shift.close_time ? new Date(selectedReport.shift.close_time).toLocaleTimeString('ar-EG') : 'غير محدد'}
                   </p>
                 </div>
-                <button onClick={() => setIsReportModalOpen(false)} className="text-gray-400 hover:text-black transition-colors">
-                  <X size={24} />
-                </button>
+                <div className="flex items-center gap-2 no-print">
+                  <button 
+                    onClick={handleExportExcel}
+                    className="flex items-center gap-2 bg-green-50 text-green-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-green-100 transition-colors"
+                  >
+                    <FileSpreadsheet size={18} /> اكسيل
+                  </button>
+                  <button 
+                    onClick={handlePrint}
+                    className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-100 transition-colors"
+                  >
+                    <Printer size={18} /> طباعة
+                  </button>
+                  <button onClick={() => setIsReportModalOpen(false)} className="text-gray-400 hover:text-black transition-colors ml-2">
+                    <X size={24} />
+                  </button>
+                </div>
               </div>
               
               <div className="flex-1 overflow-y-auto p-8 space-y-8">

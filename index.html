@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
+    <script>
+      // Suppress Vite WebSocket connection errors which are expected in this environment
+      window.addEventListener('unhandledrejection', (event) => {
+        if (event.reason && event.reason.message && event.reason.message.includes('websocket')) {
+          event.preventDefault();
+        }
+      });
+      const originalConsoleError = console.error;
+      console.error = (...args) => {
+        if (args[0] && typeof args[0] === 'string' && args[0].includes('[vite] failed to connect to websocket')) {
+          return;
+        }
+        originalConsoleError.apply(console, args);
+      };
+    </script>
   </head>
   <body>
     <div id="root"></div>
