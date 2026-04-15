@@ -94,6 +94,7 @@ export default function App() {
   
   // Product Edit State
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editingIngredients, setEditingIngredients] = useState<{ ingredient_id: number, quantity: number, name?: string, price?: number }[]>([]);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
 
   // Calculator State
@@ -154,7 +155,9 @@ export default function App() {
   const closeShift = async () => {
     if (!currentShift) return;
     
-    const totalRevenue = inventory.reduce((sum, item) => sum + (item.sales_qty * item.price), 0);
+    const totalRevenue = inventory
+      .filter(item => item.category !== 'ضيافات' && item.category !== 'مكون')
+      .reduce((sum, item) => sum + (item.sales_qty * item.price), 0);
     const totalPurchases = inventory.reduce((sum, item) => sum + (item.purchase_qty * item.price), 0);
 
     try {
@@ -189,20 +192,85 @@ export default function App() {
     if (!editingProduct) return;
     
     setSaving(true);
+    const productToSave = {
+      ...editingProduct,
+      price: parseFloat(editingProduct.price as any) || 0,
+      ratio: parseFloat(editingProduct.ratio as any) || 1
+    };
+
     try {
-      await fetch('/api/products', {
+      const res = await fetch('/api/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingProduct)
+        body: JSON.stringify(productToSave)
       });
+      const result = await res.json();
+      const productId = result.id;
+      
+      if (productId && (editingProduct.category === 'إفطار' || editingProduct.category === 'غداء')) {
+        const ingredientsToSave = editingIngredients.map(i => ({
+          ...i,
+          quantity: parseFloat(i.quantity as any) || 0
+        }));
+        await fetch(`/api/products/${productId}/ingredients`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ingredients: ingredientsToSave })
+        });
+      }
+
       setIsProductModalOpen(false);
       setEditingProduct(null);
+      setEditingIngredients([]);
       await fetchData();
     } catch (error) {
       console.error("Failed to save product", error);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleEditProduct = async (product: Product) => {
+    setEditingProduct(product);
+    setEditingIngredients([]);
+    if (product.id && (product.category === 'إفطار' || product.category === 'غداء')) {
+      try {
+        const res = await fetch(`/api/products/${product.id}/ingredients`);
+        const data = await res.json();
+        setEditingIngredients(data);
+      } catch (error) {
+        console.error("Failed to fetch ingredients", error);
+      }
+    }
+    setIsProductModalOpen(true);
+  };
+
+  const addIngredient = (ingredientId: number) => {
+    const ingredient = products.find(p => p.id === ingredientId);
+    if (!ingredient) return;
+    
+    if (editingIngredients.some(i => i.ingredient_id === ingredientId)) return;
+
+    setEditingIngredients(prev => [...prev, { 
+      ingredient_id: ingredientId, 
+      quantity: 1,
+      name: ingredient.name,
+      price: ingredient.price
+    }]);
+  };
+
+  const removeIngredient = (ingredientId: number) => {
+    setEditingIngredients(prev => prev.filter(i => i.ingredient_id !== ingredientId));
+  };
+
+  const updateIngredientQty = (ingredientId: number, qty: number) => {
+    setEditingIngredients(prev => prev.map(i => 
+      i.ingredient_id === ingredientId ? { ...i, quantity: qty } : i
+    ));
+  };
+
+  const calculateTotalCost = () => {
+    return editingIngredients.reduce((sum, i) => sum + (parseFloat(i.quantity as any) || 0) * (i.price || 0), 0);
   };
 
   const deleteProduct = async (id: number) => {
@@ -315,7 +383,9 @@ export default function App() {
 
   const totals = useMemo(() => {
     return inventory.reduce((acc, item) => {
-      acc.revenue += item.sales_qty * item.price;
+      if (item.category !== 'ضيافات' && item.category !== 'مكون') {
+        acc.revenue += item.sales_qty * item.price;
+      }
       acc.purchases += item.actual_purchase_qty * item.price;
       return acc;
     }, { revenue: 0, purchases: 0 });
@@ -453,11 +523,12 @@ export default function App() {
 
                       const catTotals = items.reduce((acc, item) => {
                         acc.revenue += item.sales_qty * item.price;
-                        acc.purchases += item.purchase_qty * item.price;
+                        acc.purchases += item.actual_purchase_qty * item.price;
                         return acc;
                       }, { revenue: 0, purchases: 0 });
 
                       const isHospitalityCat = cat === 'ضيافات';
+                      const isComponentCat = cat === 'مكون';
 
                       return (
                         <div key={cat} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -465,11 +536,11 @@ export default function App() {
                             <div className="flex items-center gap-3">
                               <div className={cn("w-2 h-6 rounded-full", isHospitalityCat ? "bg-purple-500" : "bg-black")} />
                               <h3 className="font-bold text-lg text-gray-800">
-                                {cat === 'مخزون' ? 'المخزون العام' : cat === 'إفطار' ? 'وجبة الإفطار' : cat === 'غداء' ? 'وجبة الغداء' : 'قسم الضيافات'}
+                                {cat === 'مخزون' ? 'المخزون العام' : cat === 'إفطار' ? 'وجبة الإفطار' : cat === 'غداء' ? 'وجبة الغداء' : cat === 'مكون' ? 'المكونات' : 'قسم الضيافات'}
                               </h3>
                             </div>
                             <div className="flex items-center gap-6">
-                              {!isHospitalityCat && (
+                              {(!isHospitalityCat && !isComponentCat) && (
                                 <div className="flex flex-col items-end">
                                   <span className="text-[10px] text-gray-400 uppercase font-bold">إيراد القسم</span>
                                   <span className="text-sm font-mono font-bold text-green-600">{catTotals.revenue.toLocaleString()} ج.م</span>
@@ -487,10 +558,11 @@ export default function App() {
                                   <th className="px-4 py-3 col-header text-center">مشتريات</th>
                                   <th className="px-4 py-3 col-header text-center">النسبة</th>
                                   <th className="px-4 py-3 col-header text-center bg-yellow-50/50">مشتريات فعلية</th>
-                                  {!isHospitalityCat && <th className="px-4 py-3 col-header text-center">مبيعات</th>}
+                                  {(!isHospitalityCat && !isComponentCat) && <th className="px-4 py-3 col-header text-center">مبيعات</th>}
                                   {isHospitalityCat && <th className="px-4 py-3 col-header text-center">المنصرف (ضيافة)</th>}
+                                  {isComponentCat && <th className="px-4 py-3 col-header text-center">المنصرف (مكونات)</th>}
                                   <th className="px-4 py-3 col-header text-center">الفعلي</th>
-                                  {!isHospitalityCat && <th className="px-6 py-3 col-header text-left">الإيراد</th>}
+                                  {(!isHospitalityCat && !isComponentCat) && <th className="px-6 py-3 col-header text-left">الإيراد</th>}
                                 </tr>
                               </thead>
                               <tbody>
@@ -521,16 +593,24 @@ export default function App() {
                                           {item.actual_purchase_qty}
                                         </span>
                                       </td>
-                                      {!isHospitalityCat ? (
+                                      {(!isHospitalityCat && !isComponentCat) && (
                                         <td className="px-4 py-4 text-center">
                                           <span className="font-mono font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-md">
                                             {item.sales_qty}
                                           </span>
                                         </td>
-                                      ) : (
+                                      )}
+                                      {isHospitalityCat && (
                                         <td className="px-4 py-4 text-center">
                                           <span className="font-mono font-bold text-purple-600 bg-purple-50 px-3 py-1 rounded-md">
                                             {item.hospitality_qty}
+                                          </span>
+                                        </td>
+                                      )}
+                                      {isComponentCat && (
+                                        <td className="px-4 py-4 text-center">
+                                          <span className="font-mono font-bold text-orange-600 bg-orange-50 px-3 py-1 rounded-md">
+                                            {item.sales_qty}
                                           </span>
                                         </td>
                                       )}
@@ -542,7 +622,7 @@ export default function App() {
                                           highlight
                                         />
                                       </td>
-                                      {!isHospitalityCat && (
+                                      {(!isHospitalityCat && !isComponentCat) && (
                                         <td className="px-6 py-4 text-left data-value font-bold text-sm">
                                           {revenue.toLocaleString()}
                                         </td>
@@ -603,10 +683,7 @@ export default function App() {
                       </div>
                       <div className="flex gap-1">
                         <button 
-                          onClick={() => {
-                            setEditingProduct(product);
-                            setIsProductModalOpen(true);
-                          }}
+                          onClick={() => handleEditProduct(product)}
                           className="text-gray-400 hover:text-black transition-colors p-2"
                         >
                           <Edit2 size={18} />
@@ -805,7 +882,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden relative z-10"
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden relative z-10 flex flex-col max-h-[90vh]"
             >
               <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between">
                 <h3 className="text-xl font-bold">{editingProduct?.id ? 'تعديل منتج' : 'إضافة منتج جديد'}</h3>
@@ -814,7 +891,7 @@ export default function App() {
                 </button>
               </div>
               
-              <form onSubmit={saveProduct} className="p-8 space-y-6">
+              <form onSubmit={saveProduct} className="p-8 space-y-6 overflow-y-auto flex-1">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">اسم المنتج</label>
                   <input 
@@ -838,16 +915,22 @@ export default function App() {
                       <option value="إفطار">إفطار</option>
                       <option value="غداء">غداء</option>
                       <option value="ضيافات">ضيافات</option>
+                      <option value="مكون">مكون</option>
                     </select>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">السعر (ج.م)</label>
                     <input 
                       required
-                      type="number"
-                      step="0.01"
-                      value={editingProduct?.price || ''}
-                      onChange={(e) => setEditingProduct(prev => prev ? { ...prev, price: parseFloat(e.target.value) || 0 } : null)}
+                      type="text"
+                      inputMode="decimal"
+                      value={editingProduct?.price === undefined ? '' : editingProduct.price}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                          setEditingProduct(prev => prev ? { ...prev, price: val as any } : null);
+                        }
+                      }}
                       className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
                     />
                   </div>
@@ -857,14 +940,93 @@ export default function App() {
                   <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">نسبة الصنف (المعامل)</label>
                   <input 
                     required
-                    type="number"
-                    step="0.01"
-                    value={editingProduct?.ratio || 1}
-                    onChange={(e) => setEditingProduct(prev => prev ? { ...prev, ratio: parseFloat(e.target.value) || 1 } : null)}
+                    type="text"
+                    inputMode="decimal"
+                    value={editingProduct?.ratio === undefined ? '' : editingProduct.ratio}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                        setEditingProduct(prev => prev ? { ...prev, ratio: val as any } : null);
+                      }
+                    }}
                     className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
                   />
                   <p className="text-[10px] text-gray-400">يستخدم لحساب المشتريات الفعلية (المشتريات × النسبة)</p>
                 </div>
+
+                {(editingProduct?.category === 'إفطار' || editingProduct?.category === 'غداء') && (
+                  <div className="space-y-4 border-t border-gray-100 pt-6">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">المكونات والتكلفة</label>
+                      <div className="text-sm font-bold text-blue-600">إجمالي التكلفة: {calculateTotalCost().toLocaleString()} ج.م</div>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <select 
+                        className="flex-1 bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all text-sm"
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            addIngredient(parseInt(e.target.value));
+                            e.target.value = '';
+                          }
+                        }}
+                      >
+                        <option value="">إضافة مكون...</option>
+                        {products.filter(p => p.category === 'مكون' || p.category === 'مخزون').map(p => (
+                          <option key={p.id} value={p.id}>{p.name} ({p.price} ج.م)</option>
+                        ))}
+                      </select>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const cost = calculateTotalCost();
+                          setEditingProduct(prev => prev ? { ...prev, price: cost } : null);
+                        }}
+                        className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 transition-all"
+                      >
+                        تطبيق التكلفة كالسعر
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                      {editingIngredients.map(ing => (
+                        <div key={ing.ingredient_id} className="flex items-center justify-between bg-gray-50 p-3 rounded-xl">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold">{ing.name}</span>
+                            <span className="text-[10px] text-gray-400">{ing.price} ج.م / وحدة</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2">
+                              <input 
+                                type="text"
+                                inputMode="decimal"
+                                value={ing.quantity}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                                    updateIngredientQty(ing.ingredient_id, val as any);
+                                  }
+                                }}
+                                className="w-16 bg-white border border-gray-200 rounded-lg px-2 py-1 text-center text-sm font-mono"
+                              />
+                              <span className="text-[10px] text-gray-400">وحدة</span>
+                            </div>
+                            <button 
+                              type="button"
+                              onClick={() => removeIngredient(ing.ingredient_id)}
+                              className="text-red-400 hover:text-red-600 p-1"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {editingIngredients.length === 0 && (
+                        <div className="text-center py-4 text-gray-400 text-xs italic">لا توجد مكونات مضافة بعد</div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-4">
                   <button 
@@ -961,7 +1123,8 @@ export default function App() {
                       </thead>
                       <tbody>
                         {selectedReport.inventory.map(item => {
-                          const revenue = item.sales_qty * item.price;
+                          const isNoRevenue = item.category === 'ضيافات' || item.category === 'مكون';
+                          const revenue = isNoRevenue ? 0 : item.sales_qty * item.price;
                           return (
                             <tr key={item.id} className="border-b border-gray-50 last:border-0">
                               <td className="px-4 py-3">
@@ -974,7 +1137,7 @@ export default function App() {
                               <td className="px-4 py-3 text-center text-sm text-gray-500">{item.purchase_qty}</td>
                               <td className="px-4 py-3 text-center text-sm font-bold">{item.sales_qty}</td>
                               <td className="px-4 py-3 text-center text-sm text-gray-500">{item.actual_qty}</td>
-                              <td className="px-4 py-3 text-left text-sm font-bold">{revenue.toLocaleString()}</td>
+                              <td className="px-4 py-3 text-left text-sm font-bold">{isNoRevenue ? '-' : revenue.toLocaleString()}</td>
                             </tr>
                           );
                         })}
@@ -1034,12 +1197,31 @@ function StatCard({ label, value, icon, trend }: { label: string, value: string,
 }
 
 function InventoryInput({ value, onChange, onBlur, highlight, error }: { value: number, onChange: (v: string) => void, onBlur: () => void, highlight?: boolean, error?: boolean }) {
+  const [localValue, setLocalValue] = useState(value.toString());
+
+  useEffect(() => {
+    setLocalValue(value === 0 ? '' : value.toString());
+  }, [value]);
+
   return (
     <input 
-      type="number"
-      value={value === 0 ? '' : value}
-      onChange={(e) => onChange(e.target.value)}
-      onBlur={onBlur}
+      type="text"
+      inputMode="decimal"
+      value={localValue}
+      onChange={(e) => {
+        const val = e.target.value;
+        if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+          setLocalValue(val);
+          onChange(val);
+        }
+      }}
+      onBlur={() => {
+        if (localValue === '' || localValue === '.') {
+          setLocalValue('');
+          onChange('0');
+        }
+        onBlur();
+      }}
       placeholder="0"
       className={cn(
         "w-full bg-gray-50 border-none rounded-md px-2 py-1 text-center font-mono text-sm focus:ring-2 focus:ring-black outline-none transition-all",

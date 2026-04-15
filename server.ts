@@ -41,6 +41,15 @@ db.exec(`
     FOREIGN KEY(product_id) REFERENCES products(id)
   );
 
+  CREATE TABLE IF NOT EXISTS product_ingredients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER,
+    ingredient_id INTEGER,
+    quantity REAL DEFAULT 0,
+    FOREIGN KEY(product_id) REFERENCES products(id),
+    FOREIGN KEY(ingredient_id) REFERENCES products(id)
+  );
+
   CREATE TABLE IF NOT EXISTS shift_summary (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     shift_id INTEGER,
@@ -122,14 +131,16 @@ async function startServer() {
 
   app.post("/api/products", (req, res) => {
     const { name, category, price, unit, ratio, id } = req.body;
+    let productId = id;
     if (id) {
       db.prepare("UPDATE products SET name = ?, category = ?, price = ?, unit = ?, ratio = ? WHERE id = ?")
         .run(name, category, price, unit, ratio, id);
     } else {
-      db.prepare("INSERT INTO products (name, category, price, unit, ratio) VALUES (?, ?, ?, ?, ?)")
+      const info = db.prepare("INSERT INTO products (name, category, price, unit, ratio) VALUES (?, ?, ?, ?, ?)")
         .run(name, category, price, unit, ratio);
+      productId = info.lastInsertRowid;
     }
-    res.json({ success: true });
+    res.json({ success: true, id: productId });
   });
 
   app.get("/api/current-shift", (req, res) => {
@@ -224,7 +235,34 @@ async function startServer() {
     // Delete related data first to maintain integrity
     db.prepare("DELETE FROM inventory_data WHERE product_id = ?").run(id);
     db.prepare("DELETE FROM carton_calculations WHERE product_id = ?").run(id);
+    db.prepare("DELETE FROM product_ingredients WHERE product_id = ? OR ingredient_id = ?").run(id, id);
     db.prepare("DELETE FROM products WHERE id = ?").run(id);
+    res.json({ success: true });
+  });
+
+  app.get("/api/products/:id/ingredients", (req, res) => {
+    const { id } = req.params;
+    const ingredients = db.prepare(`
+      SELECT pi.*, p.name, p.price, p.unit
+      FROM product_ingredients pi
+      JOIN products p ON pi.ingredient_id = p.id
+      WHERE pi.product_id = ?
+    `).all(id);
+    res.json(ingredients);
+  });
+
+  app.post("/api/products/:id/ingredients", (req, res) => {
+    const { id } = req.params;
+    const { ingredients } = req.body; // Array of { ingredient_id, quantity }
+
+    db.transaction(() => {
+      db.prepare("DELETE FROM product_ingredients WHERE product_id = ?").run(id);
+      const insert = db.prepare("INSERT INTO product_ingredients (product_id, ingredient_id, quantity) VALUES (?, ?, ?)");
+      for (const item of ingredients) {
+        insert.run(id, item.ingredient_id, item.quantity);
+      }
+    })();
+
     res.json({ success: true });
   });
 
