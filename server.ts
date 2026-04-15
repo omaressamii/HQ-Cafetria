@@ -135,6 +135,16 @@ async function startServer() {
     if (id) {
       db.prepare("UPDATE products SET name = ?, category = ?, price = ?, unit = ?, ratio = ? WHERE id = ?")
         .run(name, category, price, unit, ratio, id);
+      
+      // Update actual_purchase_qty for all inventory records of this product using the new ratio
+      db.prepare(`
+        UPDATE inventory_data 
+        SET actual_purchase_qty = CASE 
+          WHEN ? > 0 THEN purchase_qty / ? 
+          ELSE purchase_qty 
+        END
+        WHERE product_id = ?
+      `).run(ratio, ratio, id);
     } else {
       const info = db.prepare("INSERT INTO products (name, category, price, unit, ratio) VALUES (?, ?, ?, ?, ?)")
         .run(name, category, price, unit, ratio);
@@ -319,9 +329,17 @@ async function startServer() {
       total += (row.units_per_carton * row.carton_count);
     }
 
-    // Update the inventory_data purchase_qty
-    db.prepare("UPDATE inventory_data SET purchase_qty = ? WHERE shift_id = ? AND product_id = ?")
-      .run(total, shiftId, productId);
+    // Update the inventory_data purchase_qty and actual_purchase_qty
+    db.prepare(`
+      UPDATE inventory_data 
+      SET purchase_qty = ?, 
+          actual_purchase_qty = CASE 
+            WHEN (SELECT ratio FROM products WHERE id = ?) > 0 
+            THEN ? / (SELECT ratio FROM products WHERE id = ?)
+            ELSE ?
+          END
+      WHERE shift_id = ? AND product_id = ?
+    `).run(total, productId, total, productId, total, shiftId, productId);
 
     res.json({ success: true, total });
   });

@@ -361,7 +361,7 @@ export default function App() {
         
         // Auto-calculate actual purchase based on ratio
         if (field === 'purchase_qty') {
-          updated.actual_purchase_qty = updated.purchase_qty * (updated.ratio || 1);
+          updated.actual_purchase_qty = updated.ratio ? updated.purchase_qty / updated.ratio : updated.purchase_qty;
         }
         
         // Auto-calculate sales or hospitality based on actual count
