@@ -15,6 +15,8 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     category TEXT NOT NULL,
+    cost_price REAL DEFAULT 0,
+    selling_price REAL DEFAULT 0,
     price REAL DEFAULT 0,
     unit TEXT DEFAULT 'وحدة',
     ratio REAL DEFAULT 1.0
@@ -106,6 +108,17 @@ if (productCount.count === 0) {
   }
 }
 
+// Migration: Add cost_price and selling_price to products if they don't exist
+try {
+  db.prepare("ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0").run();
+} catch (e) {}
+try {
+  db.prepare("ALTER TABLE products ADD COLUMN selling_price REAL DEFAULT 0").run();
+} catch (e) {}
+
+// Copy legacy price to selling_price if selling_price is 0 but price is > 0
+db.prepare("UPDATE products SET selling_price = price WHERE selling_price = 0 AND price > 0").run();
+
 // Migration: Add ratio to products and actual_purchase_qty to inventory_data if they don't exist
 try {
   db.prepare("ALTER TABLE products ADD COLUMN ratio REAL DEFAULT 1.0").run();
@@ -130,11 +143,15 @@ async function startServer() {
   });
 
   app.post("/api/products", (req, res) => {
-    const { name, category, price, unit, ratio, id } = req.body;
+    const { name, category, cost_price, selling_price, price, unit, ratio, id } = req.body;
     let productId = id;
+    
+    // Fallback logic for backward compatibility in the request object if needed
+    const final_selling_price = selling_price !== undefined ? selling_price : price;
+
     if (id) {
-      db.prepare("UPDATE products SET name = ?, category = ?, price = ?, unit = ?, ratio = ? WHERE id = ?")
-        .run(name, category, price, unit, ratio, id);
+      db.prepare("UPDATE products SET name = ?, category = ?, cost_price = ?, selling_price = ?, price = ?, unit = ?, ratio = ? WHERE id = ?")
+        .run(name, category, cost_price || 0, final_selling_price || 0, final_selling_price || 0, unit, ratio, id);
       
       // Update actual_purchase_qty for all inventory records of this product using the new ratio
       db.prepare(`
@@ -146,8 +163,8 @@ async function startServer() {
         WHERE product_id = ?
       `).run(ratio, ratio, id);
     } else {
-      const info = db.prepare("INSERT INTO products (name, category, price, unit, ratio) VALUES (?, ?, ?, ?, ?)")
-        .run(name, category, price, unit, ratio);
+      const info = db.prepare("INSERT INTO products (name, category, cost_price, selling_price, price, unit, ratio) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(name, category, cost_price || 0, final_selling_price || 0, final_selling_price || 0, unit, ratio);
       productId = info.lastInsertRowid;
     }
     res.json({ success: true, id: productId });
@@ -176,7 +193,7 @@ async function startServer() {
     }
 
     const data = db.prepare(`
-      SELECT i.*, p.name, p.category, p.price, p.unit, p.ratio 
+      SELECT i.*, p.name, p.category, p.cost_price, p.selling_price, p.price, p.unit, p.ratio 
       FROM inventory_data i
       JOIN products p ON i.product_id = p.id
       WHERE i.shift_id = ?
@@ -298,7 +315,7 @@ async function startServer() {
 
     const summary = db.prepare("SELECT * FROM shift_summary WHERE shift_id = ?").get(id);
     const inventory = db.prepare(`
-      SELECT id.*, p.name, p.category, p.price, p.ratio
+      SELECT id.*, p.name, p.category, p.cost_price, p.selling_price, p.price, p.ratio
       FROM inventory_data id
       JOIN products p ON id.product_id = p.id
       WHERE id.shift_id = ?

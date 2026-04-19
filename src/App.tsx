@@ -36,7 +36,9 @@ interface Product {
   id: number;
   name: string;
   category: string;
-  price: number;
+  cost_price: number;
+  selling_price: number;
+  price: number; // Legacy, keep for compatibility in some places if needed
   unit: string;
   ratio: number;
 }
@@ -47,6 +49,8 @@ interface InventoryItem {
   product_id: number;
   name: string;
   category: string;
+  cost_price: number;
+  selling_price: number;
   price: number;
   unit: string;
   ratio: number;
@@ -82,7 +86,7 @@ interface DetailedReport {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'reports' | 'calculator'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'reports' | 'calculator' | 'meal_calculator'>('dashboard');
   const [products, setProducts] = useState<Product[]>([]);
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -108,10 +112,24 @@ export default function App() {
     { units_per_carton: 1, carton_count: 0 },
   ]);
 
+  // Meal Calculator State
+  const [selectedMealId, setSelectedMealId] = useState<number | null>(null);
+  const [mealIngredients, setMealIngredients] = useState<{ ingredient_id: number, quantity: number, name?: string, price?: number }[]>([]);
+
   // Fetch initial data
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (selectedMealId) {
+      fetch(`/api/products/${selectedMealId}/ingredients`)
+        .then(res => res.json())
+        .then(data => setMealIngredients(data));
+    } else {
+      setMealIngredients([]);
+    }
+  }, [selectedMealId]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -157,8 +175,8 @@ export default function App() {
     
     const totalRevenue = inventory
       .filter(item => item.category !== 'ضيافات' && item.category !== 'مكون')
-      .reduce((sum, item) => sum + (item.sales_qty * item.price), 0);
-    const totalPurchases = inventory.reduce((sum, item) => sum + (item.purchase_qty * item.price), 0);
+      .reduce((sum, item) => sum + (item.sales_qty * (item.selling_price || item.price)), 0);
+    const totalPurchases = inventory.reduce((sum, item) => sum + (item.purchase_qty * (item.selling_price || item.price)), 0);
 
     try {
       await fetch('/api/shift/close', {
@@ -194,7 +212,9 @@ export default function App() {
     setSaving(true);
     const productToSave = {
       ...editingProduct,
-      price: parseFloat(editingProduct.price as any) || 0,
+      cost_price: parseFloat(editingProduct.cost_price as any) || 0,
+      selling_price: parseFloat(editingProduct.selling_price as any) || 0,
+      price: parseFloat(editingProduct.selling_price as any) || 0, // Sync legacy price
       ratio: parseFloat(editingProduct.ratio as any) || 1
     };
 
@@ -269,6 +289,67 @@ export default function App() {
     ));
   };
 
+  // Meal Calculator Helpers
+  const addMealIngredient = (ingredientId: number) => {
+    const ingredient = products.find(p => p.id === ingredientId);
+    if (!ingredient) return;
+    if (mealIngredients.some(i => i.ingredient_id === ingredientId)) return;
+
+    setMealIngredients(prev => [...prev, { 
+      ingredient_id: ingredientId, 
+      quantity: 1,
+      name: ingredient.name,
+      price: ingredient.price
+    }]);
+  };
+
+  const removeMealIngredient = (ingredientId: number) => {
+    setMealIngredients(prev => prev.filter(i => i.ingredient_id !== ingredientId));
+  };
+
+  const updateMealIngredientQty = (ingredientId: number, qty: number) => {
+    setMealIngredients(prev => prev.map(i => 
+      i.ingredient_id === ingredientId ? { ...i, quantity: qty } : i
+    ));
+  };
+
+  const saveMealCalculation = async () => {
+    if (!selectedMealId) return;
+    setSaving(true);
+    try {
+      const totalCost = mealIngredients.reduce((sum, i) => sum + (parseFloat(i.quantity as any) || 0) * (i.price || 0), 0);
+      
+      // 1. Save ingredients
+      const ingredientsToSave = mealIngredients.map(i => ({
+        ...i,
+        quantity: parseFloat(i.quantity as any) || 0
+      }));
+      
+      await fetch(`/api/products/${selectedMealId}/ingredients`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ingredients: ingredientsToSave })
+      });
+
+      // 2. Update product cost_price
+      const product = products.find(p => p.id === selectedMealId);
+      if (product) {
+        await fetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...product, cost_price: totalCost })
+        });
+      }
+
+      await fetchData();
+      alert('تم حفظ التكلفة وتحديث سعر المنتج بنجاح');
+    } catch (error) {
+      console.error("Failed to save meal calculation", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const calculateTotalCost = () => {
     return editingIngredients.reduce((sum, i) => sum + (parseFloat(i.quantity as any) || 0) * (i.price || 0), 0);
   };
@@ -338,8 +419,9 @@ export default function App() {
       'مشتريات فعلية': item.actual_purchase_qty,
       'مبيعات': item.sales_qty,
       'الفعلي': item.actual_qty,
-      'السعر': item.price,
-      'الإيراد': item.sales_qty * item.price
+      'سعر التكلفة': item.cost_price || 0,
+      'سعر البيع': item.selling_price || item.price || 0,
+      'الإيراد': item.sales_qty * (item.selling_price || item.price)
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
@@ -384,9 +466,9 @@ export default function App() {
   const totals = useMemo(() => {
     return inventory.reduce((acc, item) => {
       if (item.category !== 'ضيافات' && item.category !== 'مكون') {
-        acc.revenue += item.sales_qty * item.price;
+        acc.revenue += item.sales_qty * (item.selling_price || item.price);
       }
-      acc.purchases += item.actual_purchase_qty * item.price;
+      acc.purchases += item.actual_purchase_qty * (item.selling_price || item.price);
       return acc;
     }, { revenue: 0, purchases: 0 });
   }, [inventory]);
@@ -429,6 +511,12 @@ export default function App() {
               onClick={() => setActiveTab('calculator')}
               icon={<CalcIcon size={18} />}
               label="حاسبة الكراتين"
+            />
+            <NavButton 
+              active={activeTab === 'meal_calculator'} 
+              onClick={() => setActiveTab('meal_calculator')}
+              icon={<Calculator size={18} />}
+              label="حساب الوجبات"
             />
             <NavButton 
               active={activeTab === 'reports'} 
@@ -552,18 +640,20 @@ export default function App() {
                           <div className="overflow-x-auto">
                             <table className="w-full text-right border-collapse">
                               <thead>
-                                <tr className="bg-gray-50/50">
-                                  <th className="px-6 py-3 col-header">الصنف</th>
-                                  <th className="px-4 py-3 col-header text-center">بداية</th>
-                                  <th className="px-4 py-3 col-header text-center">مشتريات</th>
-                                  <th className="px-4 py-3 col-header text-center">النسبة</th>
-                                  <th className="px-4 py-3 col-header text-center bg-yellow-50/50">مشتريات فعلية</th>
-                                  {(!isHospitalityCat && !isComponentCat) && <th className="px-4 py-3 col-header text-center">مبيعات</th>}
-                                  {isHospitalityCat && <th className="px-4 py-3 col-header text-center">المنصرف (ضيافة)</th>}
-                                  {isComponentCat && <th className="px-4 py-3 col-header text-center">المنصرف (مكونات)</th>}
-                                  <th className="px-4 py-3 col-header text-center">الفعلي</th>
-                                  {(!isHospitalityCat && !isComponentCat) && <th className="px-6 py-3 col-header text-left">الإيراد</th>}
-                                </tr>
+                                  <tr className="bg-gray-50/50">
+                                   <th className="px-6 py-3 col-header text-right">الصنف</th>
+                                   <th className="px-4 py-3 col-header text-center">بداية</th>
+                                   <th className="px-4 py-3 col-header text-center">مشتريات</th>
+                                   <th className="px-4 py-3 col-header text-center">النسبة</th>
+                                   <th className="px-4 py-3 col-header text-center bg-yellow-50/50">مشتريات فعلية</th>
+                                   {(!isHospitalityCat && !isComponentCat) && <th className="px-4 py-3 col-header text-center">مبيعات</th>}
+                                   {isHospitalityCat && <th className="px-4 py-3 col-header text-center">المنصرف (ضيافة)</th>}
+                                   {isComponentCat && <th className="px-4 py-3 col-header text-center">المنصرف (مكونات)</th>}
+                                   <th className="px-4 py-3 col-header text-center">الفعلي</th>
+                                   <th className="px-4 py-3 col-header text-center">التكلفة</th>
+                                   <th className="px-4 py-3 col-header text-center">البيع</th>
+                                   {(!isHospitalityCat && !isComponentCat) && <th className="px-6 py-3 col-header text-left">الإيراد</th>}
+                                 </tr>
                               </thead>
                               <tbody>
                                 {items.map((item) => {
@@ -622,6 +712,8 @@ export default function App() {
                                           highlight
                                         />
                                       </td>
+                                      <td className="px-4 py-4 text-center font-mono text-xs text-gray-400">{item.cost_price || 0}</td>
+                                      <td className="px-4 py-4 text-center font-mono text-xs text-blue-600 font-bold">{item.selling_price || item.price || 0}</td>
                                       {(!isHospitalityCat && !isComponentCat) && (
                                         <td className="px-6 py-4 text-left data-value font-bold text-sm">
                                           {revenue.toLocaleString()}
@@ -657,7 +749,7 @@ export default function App() {
                 </div>
                 <button 
                   onClick={() => {
-                    setEditingProduct({ id: 0, name: '', category: 'مخزون', price: 0, unit: 'وحدة' });
+                    setEditingProduct({ id: 0, name: '', category: 'مخزون', cost_price: 0, selling_price: 0, price: 0, unit: 'وحدة', ratio: 1 });
                     setIsProductModalOpen(true);
                   }}
                   className="bg-black text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2"
@@ -677,9 +769,15 @@ export default function App() {
                     </div>
                     <h3 className="font-bold text-lg mb-1">{product.name}</h3>
                     <div className="flex items-end justify-between">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">السعر</span>
-                        <span className="text-xl font-mono font-bold">{product.price} <span className="text-xs text-gray-400">ج.م</span></span>
+                      <div className="flex gap-4">
+                        <div className="flex flex-col">
+                          <span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">التكلفة</span>
+                          <span className="text-sm font-mono font-bold">{product.cost_price || 0} <span className="text-[9px] text-gray-400">ج.م</span></span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">البيع</span>
+                          <span className="text-sm font-mono font-bold text-blue-600">{product.selling_price || product.price || 0} <span className="text-[9px] text-gray-400">ج.م</span></span>
+                        </div>
                       </div>
                       <div className="flex gap-1">
                         <button 
@@ -698,6 +796,150 @@ export default function App() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'meal_calculator' && (
+            <motion.div 
+              key="meal_calculator"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold">حساب تكلفة الوجبات</h2>
+                  <p className="text-gray-500 text-sm">حساب تكلفة السندوتشات والوجبات بناءً على المكونات.</p>
+                </div>
+                <button 
+                  onClick={saveMealCalculation}
+                  disabled={saving || !selectedMealId}
+                  className="bg-black text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-black/10 disabled:opacity-50"
+                >
+                  <Save size={18} /> حفظ التكلفة وتحديث السعر
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Selection & Summary */}
+                <div className="lg:col-span-1 space-y-6">
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">الوجبة المستهدفة</label>
+                      <select 
+                        value={selectedMealId || ''}
+                        onChange={(e) => setSelectedMealId(parseInt(e.target.value))}
+                        className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
+                      >
+                        <option value="">اختر وجبة...</option>
+                        {products.filter(p => p.category === 'إفطار' || p.category === 'غداء').map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {selectedMealId && (
+                      <div className="pt-4 border-t border-gray-100">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm text-gray-500">التكلفة الإجمالية:</span>
+                          <span className="text-2xl font-mono font-bold text-black">
+                            {mealIngredients.reduce((sum, i) => sum + (parseFloat(i.quantity as any) || 0) * (i.price || 0), 0).toLocaleString()} ج.م
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-gray-400">سيتم تحديث سعر المنتج بهذا الرقم عند الحفظ.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                    <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2">
+                      <Calculator size={16} /> معادلة الحساب
+                    </h4>
+                    <p className="text-xs text-blue-600 leading-relaxed">
+                      التكلفة = مجموع (كمية المكون × سعر المكون في المخزون).
+                      <br /><br />
+                      يتم جلب أسعار المكونات تلقائياً من قائمة المنتجات المصنفة كـ "مكون" أو "مخزون".
+                    </p>
+                  </div>
+                </div>
+
+                {/* Ingredients Management */}
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                    <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                      <h3 className="font-bold">مكونات الوجبة</h3>
+                      <div className="w-64">
+                        <select 
+                          disabled={!selectedMealId}
+                          className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2 focus:ring-2 focus:ring-black outline-none transition-all text-sm disabled:opacity-50"
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              addMealIngredient(parseInt(e.target.value));
+                              e.target.value = '';
+                            }
+                          }}
+                        >
+                          <option value="">إضافة مكون...</option>
+                          {products.filter(p => p.category === 'مكون' || p.category === 'مخزون').map(p => (
+                            <option key={p.id} value={p.id}>{p.name} ({p.price} ج.م)</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="p-6">
+                      {!selectedMealId ? (
+                        <div className="text-center py-12 text-gray-400">
+                          <Calculator size={48} className="mx-auto mb-4 opacity-20" />
+                          <p>برجاء اختيار وجبة لبدء حساب التكلفة</p>
+                        </div>
+                      ) : mealIngredients.length === 0 ? (
+                        <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-100 rounded-xl">
+                          <p>لا توجد مكونات مضافة لهذه الوجبة بعد.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {mealIngredients.map(ing => (
+                            <div key={ing.ingredient_id} className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border border-transparent hover:border-gray-200 transition-all">
+                              <div className="flex flex-col">
+                                <span className="text-sm font-bold">{ing.name}</span>
+                                <span className="text-[10px] text-gray-400">{ing.price} ج.م / وحدة</span>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={ing.quantity}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                                        updateMealIngredientQty(ing.ingredient_id, val as any);
+                                      }
+                                    }}
+                                    className="w-20 bg-white border border-gray-200 rounded-lg px-3 py-2 text-center text-sm font-mono font-bold"
+                                  />
+                                  <span className="text-[10px] text-gray-400">وحدة</span>
+                                </div>
+                                <div className="w-24 text-left font-mono font-bold text-gray-600">
+                                  {((parseFloat(ing.quantity as any) || 0) * (ing.price || 0)).toLocaleString()} ج.م
+                                </div>
+                                <button 
+                                  onClick={() => removeMealIngredient(ing.ingredient_id)}
+                                  className="text-red-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-all"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </motion.div>
           )}
@@ -919,16 +1161,45 @@ export default function App() {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">السعر (ج.م)</label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">الوحدة</label>
+                    <input 
+                      required
+                      type="text"
+                      value={editingProduct?.unit || 'وحدة'}
+                      onChange={(e) => setEditingProduct(prev => prev ? { ...prev, unit: e.target.value } : null)}
+                      className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">سعر التكلفة (ج.م)</label>
                     <input 
                       required
                       type="text"
                       inputMode="decimal"
-                      value={editingProduct?.price === undefined ? '' : editingProduct.price}
+                      value={editingProduct?.cost_price === undefined ? '' : editingProduct.cost_price}
                       onChange={(e) => {
                         const val = e.target.value;
                         if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
-                          setEditingProduct(prev => prev ? { ...prev, price: val as any } : null);
+                          setEditingProduct(prev => prev ? { ...prev, cost_price: val as any } : null);
+                        }
+                      }}
+                      className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">سعر البيع (ج.م)</label>
+                    <input 
+                      required
+                      type="text"
+                      inputMode="decimal"
+                      value={editingProduct?.selling_price === undefined ? '' : editingProduct.selling_price}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                          setEditingProduct(prev => prev ? { ...prev, selling_price: val as any, price: val as any } : null);
                         }
                       }}
                       className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
@@ -973,18 +1244,18 @@ export default function App() {
                       >
                         <option value="">إضافة مكون...</option>
                         {products.filter(p => p.category === 'مكون' || p.category === 'مخزون').map(p => (
-                          <option key={p.id} value={p.id}>{p.name} ({p.price} ج.م)</option>
+                          <option key={p.id} value={p.id}>{p.name} ({p.cost_price || p.price} ج.م)</option>
                         ))}
                       </select>
                       <button 
                         type="button"
                         onClick={() => {
                           const cost = calculateTotalCost();
-                          setEditingProduct(prev => prev ? { ...prev, price: cost } : null);
+                          setEditingProduct(prev => prev ? { ...prev, cost_price: cost } : null);
                         }}
                         className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 transition-all"
                       >
-                        تطبيق التكلفة كالسعر
+                        تطبيق على سعر التكلفة
                       </button>
                     </div>
 
@@ -1113,22 +1384,24 @@ export default function App() {
                     <table className="w-full text-right border-collapse">
                       <thead>
                         <tr className="bg-gray-50">
-                          <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase">الصنف</th>
+                          <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-right">الصنف</th>
                           <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-center">بداية</th>
                           <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-center">مشتريات</th>
                           <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-center">مبيعات</th>
                           <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-center">الفعلي</th>
+                          <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-center">التكلفة</th>
+                          <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-center">البيع</th>
                           <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-left">الإيراد</th>
                         </tr>
                       </thead>
                       <tbody>
                         {selectedReport.inventory.map(item => {
                           const isNoRevenue = item.category === 'ضيافات' || item.category === 'مكون';
-                          const revenue = isNoRevenue ? 0 : item.sales_qty * item.price;
+                          const revenue = isNoRevenue ? 0 : item.sales_qty * (item.selling_price || item.price);
                           return (
                             <tr key={item.id} className="border-b border-gray-50 last:border-0">
                               <td className="px-4 py-3">
-                                <div className="flex flex-col">
+                                <div className="flex flex-col text-right">
                                   <span className="text-sm font-bold">{item.name}</span>
                                   <span className="text-[10px] text-gray-400">{item.category}</span>
                                 </div>
@@ -1137,6 +1410,8 @@ export default function App() {
                               <td className="px-4 py-3 text-center text-sm text-gray-500">{item.purchase_qty}</td>
                               <td className="px-4 py-3 text-center text-sm font-bold">{item.sales_qty}</td>
                               <td className="px-4 py-3 text-center text-sm text-gray-500">{item.actual_qty}</td>
+                              <td className="px-4 py-3 text-center text-sm text-gray-500 font-mono">{item.cost_price || 0}</td>
+                              <td className="px-4 py-3 text-center text-sm font-bold text-blue-600 font-mono">{item.selling_price || item.price || 0}</td>
                               <td className="px-4 py-3 text-left text-sm font-bold">{isNoRevenue ? '-' : revenue.toLocaleString()}</td>
                             </tr>
                           );
