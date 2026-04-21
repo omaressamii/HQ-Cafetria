@@ -25,7 +25,9 @@ import {
   Check,
   Printer,
   FileSpreadsheet,
-  Calculator as CalcIcon
+  Calculator as CalcIcon,
+  Wallet,
+  Receipt
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -67,6 +69,7 @@ interface Shift {
   open_time: string;
   close_time: string | null;
   status: 'open' | 'closed';
+  receipt_value?: number;
 }
 
 interface Report extends Shift {
@@ -74,6 +77,7 @@ interface Report extends Shift {
   total_purchases: number;
   items_sold_count: number;
   total_discrepancy: number;
+  receipt_value: number;
 }
 
 interface DetailedReport {
@@ -85,12 +89,21 @@ interface DetailedReport {
   inventory: InventoryItem[];
 }
 
+interface ExternalPurchase {
+  id?: number;
+  shift_id: number;
+  amount: number;
+  description: string;
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'reports' | 'calculator' | 'meal_calculator'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'reports' | 'calculator' | 'meal_calculator' | 'purchases_calculator'>('dashboard');
   const [products, setProducts] = useState<Product[]>([]);
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [externalPurchases, setExternalPurchases] = useState<ExternalPurchase[]>([]);
+  const [receiptValue, setReceiptValue] = useState<string>('0');
   const [selectedReport, setSelectedReport] = useState<DetailedReport | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -148,6 +161,15 @@ export default function App() {
       setCurrentShift(shift);
       setInventory(data);
       setReports(reportsData);
+      setReceiptValue(shift ? (shift.receipt_value || 0).toString() : '0');
+
+      if (shift) {
+        const extRes = await fetch(`/api/external-purchases/${shift.id}`);
+        const extData = await extRes.json();
+        setExternalPurchases(extData);
+      } else {
+        setExternalPurchases([]);
+      }
 
       // Set default calculator product if not set
       if (!calcProductId && prodData.length > 0) {
@@ -173,16 +195,21 @@ export default function App() {
   const closeShift = async () => {
     if (!currentShift) return;
     
+    const externalSum = externalPurchases.reduce((sum, p) => sum + (parseFloat(p.amount as any) || 0), 0);
     const totalRevenue = inventory
       .filter(item => item.category !== 'ضيافات' && item.category !== 'مكون')
       .reduce((sum, item) => sum + (item.sales_qty * (item.selling_price || item.price)), 0);
-    const totalPurchases = inventory.reduce((sum, item) => sum + (item.purchase_qty * (item.selling_price || item.price)), 0);
+    const totalPurchases = inventory.reduce((sum, item) => sum + (item.purchase_qty * (item.selling_price || item.price)), 0) + externalSum;
 
     try {
       await fetch('/api/shift/close', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ totalRevenue, totalPurchases })
+        body: JSON.stringify({ 
+          totalRevenue, 
+          totalPurchases, 
+          receiptValue: parseFloat(receiptValue) || 0 
+        })
       });
       await fetchData();
     } catch (error) {
@@ -390,6 +417,27 @@ export default function App() {
     }
   };
 
+  const saveExternalPurchases = async (purchases: ExternalPurchase[]) => {
+    if (!currentShift) return;
+    setSaving(true);
+    try {
+      await fetch('/api/external-purchases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shiftId: currentShift.id,
+          purchases: purchases
+        })
+      });
+      await fetchData();
+      alert('تم حفظ المشتريات الخارجية بنجاح');
+    } catch (error) {
+      console.error("Failed to save external purchases", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const fetchReportDetails = async (id: number) => {
     setLoading(true);
     try {
@@ -464,14 +512,15 @@ export default function App() {
   };
 
   const totals = useMemo(() => {
+    const externalSum = externalPurchases.reduce((sum, p) => sum + (p.amount || 0), 0);
     return inventory.reduce((acc, item) => {
       if (item.category !== 'ضيافات' && item.category !== 'مكون') {
         acc.revenue += item.sales_qty * (item.selling_price || item.price);
       }
       acc.purchases += item.actual_purchase_qty * (item.selling_price || item.price);
       return acc;
-    }, { revenue: 0, purchases: 0 });
-  }, [inventory]);
+    }, { revenue: 0, purchases: externalSum });
+  }, [inventory, externalPurchases]);
 
   if (loading) {
     return (
@@ -519,6 +568,12 @@ export default function App() {
               label="حساب الوجبات"
             />
             <NavButton 
+              active={activeTab === 'purchases_calculator'} 
+              onClick={() => setActiveTab('purchases_calculator')}
+              icon={<Wallet size={18} />}
+              label="حساب المشتريات"
+            />
+            <NavButton 
               active={activeTab === 'reports'} 
               onClick={() => setActiveTab('reports')}
               icon={<History size={18} />}
@@ -533,6 +588,25 @@ export default function App() {
               <div className="flex flex-col items-start">
                 <span className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">الوردية الحالية</span>
                 <span className="text-xs font-mono font-medium">#{currentShift.id} • {new Date(currentShift.open_time).toLocaleTimeString('ar-EG')}</span>
+              </div>
+              <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                <Receipt size={16} className="text-gray-400" />
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-bold text-gray-400">قيمة الإيصال</span>
+                  <input 
+                    type="text" 
+                    inputMode="decimal"
+                    value={receiptValue}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                        setReceiptValue(val);
+                      }
+                    }}
+                    className="bg-transparent border-none outline-none text-xs font-bold w-20 p-0 text-center"
+                    placeholder="0"
+                  />
+                </div>
               </div>
               <button 
                 onClick={closeShift}
@@ -593,7 +667,9 @@ export default function App() {
                       label="إجمالي المشتريات" 
                       value={`${totals.purchases.toLocaleString()} ج.م`} 
                       icon={<ArrowDownCircle className="text-blue-500" />}
-                      trend="بناءً على المدخلات الحالية"
+                      trend={externalPurchases.length > 0 
+                        ? `شاملة ${externalPurchases.reduce((s, p) => s + (parseFloat(p.amount as any) || 0), 0).toLocaleString()} ج.م مصروفات خارجية`
+                        : "بناءً على المدخلات الحالية"}
                     />
                     <StatCard 
                       label="صافي الرصيد" 
@@ -944,6 +1020,108 @@ export default function App() {
             </motion.div>
           )}
 
+          {activeTab === 'purchases_calculator' && (
+            <motion.div 
+              key="purchases_calculator"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold">حساب المشتريات الخارجية</h2>
+                  <p className="text-gray-500 text-sm">إضافة مبالغ المشتريات الخارجية (فواتير، مصروفات أخرى) ليتم جمعها مع إجمالي المشتريات.</p>
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => {
+                        const newRow = { shift_id: currentShift?.id || 0, amount: 0, description: '' };
+                        setExternalPurchases(prev => [...prev, newRow]);
+                    }}
+                    className="bg-black text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2"
+                  >
+                    <Plus size={16} /> إضافة بند
+                  </button>
+                  <button 
+                    onClick={() => saveExternalPurchases(externalPurchases)}
+                    disabled={saving || !currentShift}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-green-700 disabled:opacity-50"
+                  >
+                    <Save size={16} /> حفظ الكل
+                  </button>
+                </div>
+              </div>
+
+              {!currentShift ? (
+                <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-20 flex flex-col items-center justify-center text-center space-y-4">
+                  <AlertCircle className="text-gray-300 w-12 h-12" />
+                  <h2 className="text-xl font-bold">يجب فتح وردية أولاً</h2>
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                  <div className="p-6 bg-gray-50/50 border-b border-gray-100 flex justify-between items-center">
+                    <span className="font-bold text-gray-700">قائمة المصروفات الخارجية</span>
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium text-gray-400">إجمالي المصروفات الخارجية:</span>
+                        <span className="text-2xl font-mono font-bold text-red-600">{externalPurchases.reduce((sum, p) => sum + (parseFloat(p.amount as any) || 0), 0).toLocaleString()} ج.م</span>
+                    </div>
+                  </div>
+                  <div className="p-6 space-y-4">
+                    {externalPurchases.length === 0 ? (
+                      <div className="text-center py-12 text-gray-400 italic">لا توجد مصروفات مضافة بعد. اضغط على "إضافة بند" للبدء.</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {externalPurchases.map((p, idx) => (
+                          <div key={idx} className="flex gap-4 items-center bg-gray-50 p-4 rounded-xl border border-transparent hover:border-gray-200 transition-all">
+                            <div className="flex-1 space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">الوصف / البيان</label>
+                                <input 
+                                  type="text"
+                                  value={p.description}
+                                  placeholder="مثل: فاتورة الكهرباء، مشتريات خضار..."
+                                  onChange={(e) => {
+                                      const newArr = [...externalPurchases];
+                                      newArr[idx].description = e.target.value;
+                                      setExternalPurchases(newArr);
+                                  }}
+                                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+                                />
+                            </div>
+                            <div className="w-40 space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">المبلغ (ج.م)</label>
+                                <input 
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={p.amount}
+                                  onChange={(e) => {
+                                      const val = e.target.value;
+                                      if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                                          const newArr = [...externalPurchases];
+                                          newArr[idx].amount = val as any;
+                                          setExternalPurchases(newArr);
+                                      }
+                                  }}
+                                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono font-bold outline-none focus:ring-2 focus:ring-black"
+                                />
+                            </div>
+                            <button 
+                              onClick={() => setExternalPurchases(prev => prev.filter((_, i) => i !== idx))}
+                              className="text-red-400 hover:text-red-600 p-2 self-end mt-1"
+                              title="حذف البند"
+                            >
+                              <Trash2 size={20} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
           {activeTab === 'reports' && (
             <motion.div 
               key="reports"
@@ -966,7 +1144,8 @@ export default function App() {
                       <th className="px-6 py-4 col-header text-center">الأصناف المباعة</th>
                       <th className="px-6 py-4 col-header text-left">الإيرادات</th>
                       <th className="px-6 py-4 col-header text-left">المشتريات</th>
-                      <th className="px-6 py-4 col-header text-left">الصافي</th>
+                      <th className="px-6 py-4 col-header text-left">صافي الجرد</th>
+                      <th className="px-6 py-4 col-header text-left">قيمة الإيصال</th>
                       <th className="px-6 py-4 col-header"></th>
                     </tr>
                   </thead>
@@ -988,6 +1167,7 @@ export default function App() {
                         <td className="px-6 py-4 text-left data-value font-bold text-green-600">+{report.total_revenue?.toLocaleString()}</td>
                         <td className="px-6 py-4 text-left data-value font-bold text-red-600">-{report.total_purchases?.toLocaleString()}</td>
                         <td className="px-6 py-4 text-left data-value font-bold">{(report.total_revenue - report.total_purchases).toLocaleString()}</td>
+                        <td className="px-6 py-4 text-left data-value font-bold text-blue-600">{report.receipt_value?.toLocaleString()}</td>
                         <td className="px-6 py-4 text-center">
                           <button 
                             onClick={() => fetchReportDetails(report.id)}

@@ -26,7 +26,8 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     open_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     close_time DATETIME,
-    status TEXT DEFAULT 'open'
+    status TEXT DEFAULT 'open',
+    receipt_value REAL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS inventory_data (
@@ -68,6 +69,14 @@ db.exec(`
     carton_count REAL DEFAULT 0,
     FOREIGN KEY(shift_id) REFERENCES shifts(id),
     FOREIGN KEY(product_id) REFERENCES products(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS external_purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shift_id INTEGER,
+    amount REAL DEFAULT 0,
+    description TEXT,
+    FOREIGN KEY(shift_id) REFERENCES shifts(id)
   );
 `);
 
@@ -236,10 +245,10 @@ async function startServer() {
     const shift = db.prepare("SELECT id FROM shifts WHERE status = 'open'").get() as any;
     if (!shift) return res.status(400).json({ error: "No open shift" });
 
-    const { totalRevenue, totalPurchases } = req.body;
+    const { totalRevenue, totalPurchases, receiptValue } = req.body;
 
-    db.prepare("UPDATE shifts SET status = 'closed', close_time = CURRENT_TIMESTAMP WHERE id = ?")
-      .run(shift.id);
+    db.prepare("UPDATE shifts SET status = 'closed', close_time = CURRENT_TIMESTAMP, receipt_value = ? WHERE id = ?")
+      .run(receiptValue || 0, shift.id);
     
     db.prepare("INSERT INTO shift_summary (shift_id, total_revenue, total_purchases) VALUES (?, ?, ?)")
       .run(shift.id, totalRevenue, totalPurchases);
@@ -290,6 +299,24 @@ async function startServer() {
       }
     })();
 
+    res.json({ success: true });
+  });
+
+  app.get("/api/external-purchases/:shiftId", (req, res) => {
+    const { shiftId } = req.params;
+    const data = db.prepare("SELECT * FROM external_purchases WHERE shift_id = ?").all(shiftId);
+    res.json(data);
+  });
+
+  app.post("/api/external-purchases", (req, res) => {
+    const { shiftId, purchases } = req.body;
+    db.transaction(() => {
+      db.prepare("DELETE FROM external_purchases WHERE shift_id = ?").run(shiftId);
+      const insert = db.prepare("INSERT INTO external_purchases (shift_id, amount, description) VALUES (?, ?, ?)");
+      for (const p of purchases) {
+        insert.run(shiftId, p.amount || 0, p.description || '');
+      }
+    })();
     res.json({ success: true });
   });
 
