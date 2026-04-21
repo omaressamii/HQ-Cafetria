@@ -199,7 +199,7 @@ export default function App() {
     const totalRevenue = inventory
       .filter(item => item.category !== 'ضيافات' && item.category !== 'مكون')
       .reduce((sum, item) => sum + (item.sales_qty * (item.selling_price || item.price)), 0);
-    const totalPurchases = inventory.reduce((sum, item) => sum + (item.purchase_qty * (item.selling_price || item.price)), 0) + externalSum;
+    const totalPurchases = externalSum;
 
     try {
       await fetch('/api/shift/close', {
@@ -517,7 +517,6 @@ export default function App() {
       if (item.category !== 'ضيافات' && item.category !== 'مكون') {
         acc.revenue += item.sales_qty * (item.selling_price || item.price);
       }
-      acc.purchases += item.actual_purchase_qty * (item.selling_price || item.price);
       return acc;
     }, { revenue: 0, purchases: externalSum });
   }, [inventory, externalPurchases]);
@@ -668,8 +667,8 @@ export default function App() {
                       value={`${totals.purchases.toLocaleString()} ج.م`} 
                       icon={<ArrowDownCircle className="text-blue-500" />}
                       trend={externalPurchases.length > 0 
-                        ? `شاملة ${externalPurchases.reduce((s, p) => s + (parseFloat(p.amount as any) || 0), 0).toLocaleString()} ج.م مصروفات خارجية`
-                        : "بناءً على المدخلات الحالية"}
+                        ? `إجمالي بنود صفحة حساب المشتريات`
+                        : "بناءً على المدخلات الخارجية"}
                     />
                     <StatCard 
                       label="صافي الرصيد" 
