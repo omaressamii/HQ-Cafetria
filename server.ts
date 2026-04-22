@@ -78,7 +78,28 @@ db.exec(`
     description TEXT,
     FOREIGN KEY(shift_id) REFERENCES shifts(id)
   );
+
+  CREATE TABLE IF NOT EXISTS employees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    username TEXT UNIQUE,
+    password TEXT,
+    role TEXT DEFAULT 'staff',
+    pin TEXT,
+    can_manage_products INTEGER DEFAULT 0,
+    can_view_reports INTEGER DEFAULT 0,
+    can_manage_employees INTEGER DEFAULT 0
+  );
 `);
+
+// Seed Super Admin if empty
+const adminExists = db.prepare("SELECT count(*) as count FROM employees WHERE username = 'admin'").get() as { count: number };
+if (adminExists.count === 0) {
+  db.prepare(`
+    INSERT INTO employees (name, username, password, role, can_manage_products, can_view_reports, can_manage_employees)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run('Super Admin', 'admin', '@dmin1215', 'admin', 1, 1, 1);
+}
 
 // Seed initial products if empty
 const productCount = db.prepare("SELECT count(*) as count FROM products").get() as { count: number };
@@ -241,6 +262,14 @@ async function startServer() {
     res.json({ success: true, shiftId });
   });
 
+  app.post("/api/shift/update-receipt", (req, res) => {
+    const { receiptValue } = req.body;
+    const shift = db.prepare("SELECT id FROM shifts WHERE status = 'open'").get() as any;
+    if (!shift) return res.status(400).json({ error: "No open shift" });
+    db.prepare("UPDATE shifts SET receipt_value = ? WHERE id = ?").run(receiptValue || 0, shift.id);
+    res.json({ success: true });
+  });
+
   app.post("/api/shift/close", (req, res) => {
     const shift = db.prepare("SELECT id FROM shifts WHERE status = 'open'").get() as any;
     if (!shift) return res.status(400).json({ error: "No open shift" });
@@ -386,6 +415,62 @@ async function startServer() {
     `).run(total, productId, total, productId, total, shiftId, productId);
 
     res.json({ success: true, total });
+  });
+
+  // Employee Management Endpoints
+  app.get("/api/employees", (req, res) => {
+    const employees = db.prepare("SELECT id, name, username, role, pin, can_manage_products, can_view_reports, can_manage_employees FROM employees").all();
+    res.json(employees);
+  });
+
+  app.post("/api/login", (req, res) => {
+    const { username, password } = req.body;
+    const user = db.prepare("SELECT * FROM employees WHERE username = ? AND password = ?").get(username, password) as any;
+    
+    if (user) {
+      res.json({ 
+        success: true, 
+        user: {
+          id: user.id,
+          name: user.name,
+          username: user.username,
+          role: user.role,
+          permissions: {
+            can_manage_products: !!user.can_manage_products,
+            can_view_reports: !!user.can_view_reports,
+            can_manage_employees: !!user.can_manage_employees
+          }
+        }
+      });
+    } else {
+      res.status(401).json({ error: "بيانات الدخول غير صحيحة" });
+    }
+  });
+
+  app.post("/api/employees", (req, res) => {
+    const { name, username, password, role, pin, can_manage_products, can_view_reports, can_manage_employees } = req.body;
+    const result = db.prepare(`
+      INSERT INTO employees (name, username, password, role, pin, can_manage_products, can_view_reports, can_manage_employees)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(name, username, password, role, pin, can_manage_products ? 1 : 0, can_view_reports ? 1 : 0, can_manage_employees ? 1 : 0);
+    res.json({ success: true, id: result.lastInsertRowid });
+  });
+
+  app.put("/api/employees/:id", (req, res) => {
+    const { id } = req.params;
+    const { name, username, password, role, pin, can_manage_products, can_view_reports, can_manage_employees } = req.body;
+    db.prepare(`
+      UPDATE employees 
+      SET name = ?, username = ?, password = ?, role = ?, pin = ?, can_manage_products = ?, can_view_reports = ?, can_manage_employees = ?
+      WHERE id = ?
+    `).run(name, username, password, role, pin, can_manage_products ? 1 : 0, can_view_reports ? 1 : 0, can_manage_employees ? 1 : 0, id);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/employees/:id", (req, res) => {
+    const { id } = req.params;
+    db.prepare("DELETE FROM employees WHERE id = ?").run(id);
+    res.json({ success: true });
   });
 
   // Vite middleware

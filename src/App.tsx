@@ -27,7 +27,13 @@ import {
   FileSpreadsheet,
   Calculator as CalcIcon,
   Wallet,
-  Receipt
+  Receipt,
+  Users,
+  Shield,
+  Key,
+  LogOut,
+  User as UserIcon,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -96,13 +102,42 @@ interface ExternalPurchase {
   description: string;
 }
 
+interface Employee {
+  id?: number;
+  name: string;
+  username?: string;
+  password?: string;
+  role: string;
+  pin: string;
+  can_manage_products: boolean;
+  can_view_reports: boolean;
+  can_manage_employees: boolean;
+}
+
+interface User {
+  id: number;
+  name: string;
+  username: string;
+  role: string;
+  permissions: {
+    can_manage_products: boolean;
+    can_view_reports: boolean;
+    can_manage_employees: boolean;
+  }
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'reports' | 'calculator' | 'meal_calculator' | 'purchases_calculator'>('dashboard');
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('shiftlog_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'reports' | 'calculator' | 'meal_calculator' | 'purchases_calculator' | 'employees'>('dashboard');
   const [products, setProducts] = useState<Product[]>([]);
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [externalPurchases, setExternalPurchases] = useState<ExternalPurchase[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [receiptValue, setReceiptValue] = useState<string>('0');
   const [selectedReport, setSelectedReport] = useState<DetailedReport | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -125,14 +160,29 @@ export default function App() {
     { units_per_carton: 1, carton_count: 0 },
   ]);
 
+  // Employee State
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+
   // Meal Calculator State
   const [selectedMealId, setSelectedMealId] = useState<number | null>(null);
   const [mealIngredients, setMealIngredients] = useState<{ ingredient_id: number, quantity: number, name?: string, price?: number }[]>([]);
 
-  // Fetch initial data
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (user) {
+      fetchData();
+    }
+  }, [user]);
+
+  const handleLogin = (loggedUser: User) => {
+    setUser(loggedUser);
+    localStorage.setItem('shiftlog_user', JSON.stringify(loggedUser));
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('shiftlog_user');
+  };
 
   useEffect(() => {
     if (selectedMealId) {
@@ -145,17 +195,27 @@ export default function App() {
   }, [selectedMealId]);
 
   const fetchData = async () => {
+    if (!user) return;
     setLoading(true);
     try {
-      const [prodRes, shiftRes, reportsRes] = await Promise.all([
+      const [prodRes, shiftRes, reportsRes, empRes] = await Promise.all([
         fetch('/api/products'),
         fetch('/api/current-shift'),
-        fetch('/api/reports')
+        fetch('/api/reports'),
+        fetch('/api/employees')
       ]);
       
       const prodData = await prodRes.json();
       const { shift, data } = await shiftRes.json();
       const reportsData = await reportsRes.json();
+      const empData = await empRes.json();
+
+      setEmployees(empData.map((e: any) => ({
+        ...e,
+        can_manage_products: !!e.can_manage_products,
+        can_view_reports: !!e.can_view_reports,
+        can_manage_employees: !!e.can_manage_employees
+      })));
 
       setProducts(prodData);
       setCurrentShift(shift);
@@ -214,6 +274,18 @@ export default function App() {
       await fetchData();
     } catch (error) {
       console.error("Failed to close shift", error);
+    }
+  };
+
+  const saveReceiptValue = async () => {
+    try {
+      await fetch('/api/shift/update-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receiptValue: parseFloat(receiptValue) || 0 })
+      });
+    } catch (error) {
+      console.error("Failed to save receipt value", error);
     }
   };
 
@@ -395,6 +467,40 @@ export default function App() {
     }
   };
 
+  const saveEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEmployee) return;
+    
+    setSaving(true);
+    const method = editingEmployee.id ? 'PUT' : 'POST';
+    const url = editingEmployee.id ? `/api/employees/${editingEmployee.id}` : '/api/employees';
+
+    try {
+      await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingEmployee)
+      });
+      setIsEmployeeModalOpen(false);
+      setEditingEmployee(null);
+      await fetchData();
+    } catch (error) {
+      console.error("Failed to save employee", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteEmployee = async (id: number) => {
+    if (!window.confirm("هل أنت متأكد من حذف هذا الموظف؟")) return;
+    try {
+      await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+      await fetchData();
+    } catch (error) {
+      console.error("Failed to delete employee", error);
+    }
+  };
+
   const saveCartonCalculation = async () => {
     if (!currentShift || !calcProductId) return;
     setSaving(true);
@@ -521,12 +627,16 @@ export default function App() {
     }, { revenue: 0, purchases: externalSum });
   }, [inventory, externalPurchases]);
 
-  if (loading) {
+  if (loading && user) {
     return (
       <div className="flex items-center justify-center h-screen bg-[#f8f9fa]">
         <RefreshCw className="w-8 h-8 animate-spin text-gray-400" />
       </div>
     );
+  }
+
+  if (!user) {
+    return <LoginPage onLogin={handleLogin} />;
   }
 
   return (
@@ -578,10 +688,33 @@ export default function App() {
               icon={<History size={18} />}
               label="التقارير"
             />
+            <NavButton 
+              active={activeTab === 'employees'} 
+              onClick={() => setActiveTab('employees')}
+              icon={<Users size={18} />}
+              label="الموظفين"
+            />
           </div>
         </div>
 
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 ml-4">
+            <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 uppercase font-bold text-xs">
+              {user.name.charAt(0)}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold">{user.name}</span>
+              <span className="text-[10px] text-gray-400">{user.role === 'admin' ? 'مدير نظام' : 'موظف'}</span>
+            </div>
+            <button 
+              onClick={handleLogout}
+              className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
+              title="تسجيل الخروج"
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
+
           {currentShift ? (
             <div className="flex items-center gap-3">
               <div className="flex flex-col items-start">
@@ -602,10 +735,18 @@ export default function App() {
                         setReceiptValue(val);
                       }
                     }}
+                    onBlur={saveReceiptValue}
                     className="bg-transparent border-none outline-none text-xs font-bold w-20 p-0 text-center"
                     placeholder="0"
                   />
                 </div>
+                <button 
+                  onClick={saveReceiptValue}
+                  className="text-gray-400 hover:text-green-600 transition-colors"
+                  title="حفظ قيمة الإيصال"
+                >
+                  <Save size={14} />
+                </button>
               </div>
               <button 
                 onClick={closeShift}
@@ -867,6 +1008,113 @@ export default function App() {
                         >
                           <Trash2 size={18} />
                         </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'employees' && (
+            <motion.div 
+              key="employees"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold">إدارة الموظفين</h2>
+                  <p className="text-gray-500 text-sm">إدارة المستخدمين، الأدوار، وصلاحيات النظام.</p>
+                </div>
+                <button 
+                  onClick={() => {
+                    setEditingEmployee({
+                      name: '',
+                      role: 'staff',
+                      pin: '',
+                      can_manage_products: false,
+                      can_view_reports: false,
+                      can_manage_employees: false
+                    });
+                    setIsEmployeeModalOpen(true);
+                  }}
+                  className="bg-black text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-black/10"
+                >
+                  <Plus size={18} /> إضافة موظف جديد
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {employees.map(emp => (
+                  <div key={emp.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                    <div className="p-6 space-y-4 flex-1">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center text-gray-400">
+                            <Users size={24} />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-lg">{emp.name}</h3>
+                            <span className={cn(
+                              "text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full",
+                              emp.role === 'admin' ? "bg-purple-100 text-purple-600" : "bg-gray-100 text-gray-500"
+                            )}>
+                              {emp.role === 'admin' ? 'مدير نظام' : 'موظف'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button 
+                            onClick={() => {
+                              setEditingEmployee(emp);
+                              setIsEmployeeModalOpen(true);
+                            }}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button 
+                            onClick={() => emp.id && deleteEmployee(emp.id)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">الصلاحيات الممنوحة</label>
+                        <div className="flex flex-wrap gap-2">
+                          {emp.can_manage_products && (
+                            <span className="flex items-center gap-1 bg-green-50 text-green-700 text-[10px] font-bold px-2 py-1 rounded-md">
+                              <Package size={10} /> إدارة المنتجات
+                            </span>
+                          )}
+                          {emp.can_view_reports && (
+                            <span className="flex items-center gap-1 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-1 rounded-md">
+                              <History size={10} /> عرض التقارير
+                            </span>
+                          )}
+                          {emp.can_manage_employees && (
+                            <span className="flex items-center gap-1 bg-purple-50 text-purple-700 text-[10px] font-bold px-2 py-1 rounded-md">
+                              <Shield size={10} /> إدارة الموظفين
+                            </span>
+                          )}
+                          {!emp.can_manage_products && !emp.can_view_reports && !emp.can_manage_employees && (
+                            <span className="text-gray-400 text-[10px] italic">لا توجد صلاحيات خاصة</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-gray-400">
+                        <Key size={14} />
+                        <span className="text-xs font-mono font-bold tracking-widest">
+                          {emp.pin ? '••••' : 'لم يتم تعيين PIN'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1605,6 +1853,168 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Employee Management Modal */}
+      <AnimatePresence>
+        {isEmployeeModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsEmployeeModalOpen(false)}
+              className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden relative z-10 flex flex-col max-h-[90vh]"
+            >
+              <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="text-xl font-bold">{editingEmployee?.id ? 'تعديل موظف' : 'إضافة موظف جديد'}</h3>
+                <button onClick={() => setIsEmployeeModalOpen(false)} className="text-gray-400 hover:text-black transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <form onSubmit={saveEmployee} className="p-8 space-y-6 overflow-y-auto flex-1">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">اسم الموظف / المستخدم</label>
+                  <input 
+                    required
+                    type="text"
+                    value={editingEmployee?.name || ''}
+                    onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, name: e.target.value } : null)}
+                    className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
+                    placeholder="مثال: أحمد محمد"
+                  />
+                </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">اسم المستخدم</label>
+                      <input 
+                        type="text"
+                        value={editingEmployee?.username || ''}
+                        onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, username: e.target.value } : null)}
+                        className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
+                        placeholder="admin"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">كلمة المرور</label>
+                      <input 
+                        type="password"
+                        value={editingEmployee?.password || ''}
+                        onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, password: e.target.value } : null)}
+                        className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all"
+                        placeholder="••••••••"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">الدور الوظيفي</label>
+                    <select 
+                      value={editingEmployee?.role || 'staff'}
+                      onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, role: e.target.value } : null)}
+                      className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all appearance-none"
+                    >
+                      <option value="staff">موظف (Staff)</option>
+                      <option value="admin">مدير (Admin)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">رمز الدخول (PIN)</label>
+                    <input 
+                      type="password"
+                      maxLength={4}
+                      value={editingEmployee?.pin || ''}
+                      onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, pin: e.target.value } : null)}
+                      className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all text-center tracking-[1em] font-bold"
+                      placeholder="••••"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 block pb-2 border-b border-gray-100">صلاحيات الوصول</label>
+                  
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <Package size={18} className="text-gray-400" />
+                      <div>
+                        <div className="text-sm font-bold">إدارة المنتجات</div>
+                        <div className="text-[10px] text-gray-400">إضافة، تعديل، وحذف الأصناف والمكونات</div>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        className="sr-only peer"
+                        checked={editingEmployee?.can_manage_products || false}
+                        onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, can_manage_products: e.target.checked } : null)}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <History size={18} className="text-gray-400" />
+                      <div>
+                        <div className="text-sm font-bold">عرض التقارير</div>
+                        <div className="text-[10px] text-gray-400">الاطلاع على سجل الورديات والأرشفة</div>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        className="sr-only peer"
+                        checked={editingEmployee?.can_view_reports || false}
+                        onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, can_view_reports: e.target.checked } : null)}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <Shield size={18} className="text-gray-400" />
+                      <div>
+                        <div className="text-sm font-bold">إدارة الموظفين</div>
+                        <div className="text-[10px] text-gray-400">التحكم في حسابات الموظفين وصلاحياتهم</div>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        className="sr-only peer"
+                        checked={editingEmployee?.can_manage_employees || false}
+                        onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, can_manage_employees: e.target.checked } : null)}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button 
+                    type="submit"
+                    disabled={saving}
+                    className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-black/10 disabled:opacity-50"
+                  >
+                    {saving && <RefreshCw size={18} className="animate-spin" />}
+                    <Save size={18} /> {editingEmployee?.id ? 'حفظ التعديلات' : 'إضافة الموظف'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200 p-6">
         <div className="max-w-7xl mx-auto flex justify-between items-center text-[10px] font-mono text-gray-400 uppercase tracking-widest">
@@ -1683,5 +2093,142 @@ function InventoryInput({ value, onChange, onBlur, highlight, error }: { value: 
         error && "bg-red-50 text-red-600 font-bold ring-1 ring-red-200"
       )}
     />
+  );
+}
+
+function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        onLogin(data.user);
+      } else {
+        const data = await res.json();
+        setError(data.error || 'حدث خطأ ما');
+      }
+    } catch (err) {
+      setError('تعذر الاتصال بالخادم');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4 overflow-hidden relative" dir="rtl">
+      {/* Background Orbs */}
+      <div className="absolute top-0 -left-4 w-72 h-72 bg-blue-400 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob"></div>
+      <div className="absolute top-0 -right-4 w-72 h-72 bg-purple-400 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-2000"></div>
+      <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-400 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-4000"></div>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md relative z-10"
+      >
+        <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-gray-100">
+          <div className="bg-black p-12 text-center relative overflow-hidden">
+            {/* Design accents */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gray-900 rounded-full -mr-16 -mt-16"></div>
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-gray-900 rounded-full -ml-12 -mb-12"></div>
+            
+            <div className="relative z-10 flex flex-col items-center gap-4">
+              <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20 shadow-xl">
+                <TrendingUp className="text-white w-8 h-8" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-black text-white tracking-tight">سجل<span className="text-gray-500">الوردية</span></h1>
+                <p className="text-gray-500 text-xs mt-1 uppercase tracking-widest font-bold">نظام إدارة المخزون المتقدم</p>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="p-12 space-y-8">
+            {error && (
+              <motion.div 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="bg-red-50 text-red-600 p-4 rounded-2xl text-sm font-bold flex items-center gap-2 border border-red-100"
+              >
+                <AlertCircle size={18} />
+                {error}
+              </motion.div>
+            )}
+
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 px-1">اسم المستخدم</label>
+                <div className="relative group">
+                  <div className="absolute inset-y-0 right-4 flex items-center text-gray-400 group-focus-within:text-black transition-colors">
+                    <UserIcon size={18} />
+                  </div>
+                  <input 
+                    required
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full bg-gray-50 border-2 border-transparent rounded-[1.25rem] pr-12 pl-4 py-4 focus:bg-white focus:border-black outline-none transition-all font-medium text-gray-900"
+                    placeholder="أدخل اسم المستخدم"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 px-1">كلمة المرور</label>
+                <div className="relative group">
+                  <div className="absolute inset-y-0 right-4 flex items-center text-gray-400 group-focus-within:text-black transition-colors">
+                    <Lock size={18} />
+                  </div>
+                  <input 
+                    required
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-gray-50 border-2 border-transparent rounded-[1.25rem] pr-12 pl-4 py-4 focus:bg-white focus:border-black outline-none transition-all font-medium text-gray-900"
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button 
+              type="submit"
+              disabled={loading}
+              className="w-full bg-black text-white py-5 rounded-[1.25rem] font-bold hover:bg-gray-800 transition-all flex items-center justify-center gap-3 shadow-xl shadow-black/10 disabled:opacity-50 active:scale-[0.98]"
+            >
+              {loading ? (
+                <RefreshCw size={20} className="animate-spin" />
+              ) : (
+                <>
+                  <Check size={20} />
+                  <span>دخول للنظام</span>
+                </>
+              )}
+            </button>
+
+            <div className="text-center pt-4">
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-relaxed">
+                هذا النظام مخصص للمصرح لهم فقط.<br />
+                جميع العمليات يتم تسجيلها ومراقبتها.
+              </p>
+            </div>
+          </form>
+        </div>
+      </motion.div>
+    </div>
   );
 }
