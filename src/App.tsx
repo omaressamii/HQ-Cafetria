@@ -33,7 +33,8 @@ import {
   Key,
   LogOut,
   User as UserIcon,
-  Lock
+  Lock,
+  Menu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -132,6 +133,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
   const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'reports' | 'calculator' | 'meal_calculator' | 'purchases_calculator' | 'employees'>('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -642,134 +644,150 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#f8f9fa] flex flex-col" dir="rtl">
       {/* Sidebar / Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-black rounded flex items-center justify-center">
-              <TrendingUp className="text-white w-5 h-5" />
+      <nav className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center justify-between w-full md:w-auto gap-8">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-black rounded flex items-center justify-center">
+                <TrendingUp className="text-white w-5 h-5" />
+              </div>
+              <h1 className="font-bold text-xl tracking-tight">سجل<span className="text-gray-400">الوردية</span></h1>
             </div>
-            <h1 className="font-bold text-xl tracking-tight">سجل<span className="text-gray-400">الوردية</span></h1>
+            
+            {/* Mobile Menu Toggle */}
+            <button 
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
           </div>
           
-          <div className="flex items-center gap-1">
+          <div className={cn(
+            "flex-1 items-center gap-1 overflow-x-auto no-scrollbar py-1 w-full",
+            isMobileMenuOpen ? "flex flex-col md:flex-row animate-in fade-in slide-in-from-top-2" : "hidden md:flex"
+          )}>
             <NavButton 
               active={activeTab === 'dashboard'} 
-              onClick={() => setActiveTab('dashboard')}
+              onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
               icon={<LayoutDashboard size={18} />}
               label="لوحة التحكم"
             />
             <NavButton 
               active={activeTab === 'products'} 
-              onClick={() => setActiveTab('products')}
+              onClick={() => { setActiveTab('products'); setIsMobileMenuOpen(false); }}
               icon={<Package size={18} />}
               label="المنتجات"
             />
             <NavButton 
               active={activeTab === 'calculator'} 
-              onClick={() => setActiveTab('calculator')}
+              onClick={() => { setActiveTab('calculator'); setIsMobileMenuOpen(false); }}
               icon={<CalcIcon size={18} />}
               label="حاسبة الكراتين"
             />
             <NavButton 
               active={activeTab === 'meal_calculator'} 
-              onClick={() => setActiveTab('meal_calculator')}
+              onClick={() => { setActiveTab('meal_calculator'); setIsMobileMenuOpen(false); }}
               icon={<Calculator size={18} />}
               label="حساب الوجبات"
             />
             <NavButton 
               active={activeTab === 'purchases_calculator'} 
-              onClick={() => setActiveTab('purchases_calculator')}
+              onClick={() => { setActiveTab('purchases_calculator'); setIsMobileMenuOpen(false); }}
               icon={<Wallet size={18} />}
               label="حساب المشتريات"
             />
             <NavButton 
               active={activeTab === 'reports'} 
-              onClick={() => setActiveTab('reports')}
+              onClick={() => { setActiveTab('reports'); setIsMobileMenuOpen(false); }}
               icon={<History size={18} />}
               label="التقارير"
             />
             <NavButton 
               active={activeTab === 'employees'} 
-              onClick={() => setActiveTab('employees')}
+              onClick={() => { setActiveTab('employees'); setIsMobileMenuOpen(false); }}
               icon={<Users size={18} />}
               label="الموظفين"
             />
           </div>
-        </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 ml-4">
-            <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 uppercase font-bold text-xs">
-              {user.name.charAt(0)}
-            </div>
-            <div className="flex flex-col">
-              <span className="text-xs font-bold">{user.name}</span>
-              <span className="text-[10px] text-gray-400">{user.role === 'admin' ? 'مدير نظام' : 'موظف'}</span>
-            </div>
-            <button 
-              onClick={handleLogout}
-              className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
-              title="تسجيل الخروج"
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-
-          {currentShift ? (
-            <div className="flex items-center gap-3">
-              <div className="flex flex-col items-start">
-                <span className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">الوردية الحالية</span>
-                <span className="text-xs font-mono font-medium">#{currentShift.id} • {new Date(currentShift.open_time).toLocaleTimeString('ar-EG')}</span>
+          <div className={cn(
+            "items-center gap-4 w-full md:w-auto",
+            isMobileMenuOpen ? "flex flex-col md:flex-row pt-4 border-t md:border-t-0 border-gray-100" : "hidden md:flex"
+          )}>
+            <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 w-full md:w-auto">
+              <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 uppercase font-bold text-xs">
+                {user.name.charAt(0)}
               </div>
-              <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
-                <Receipt size={16} className="text-gray-400" />
-                <div className="flex flex-col">
-                  <span className="text-[9px] font-bold text-gray-400">قيمة الإيصال</span>
-                  <input 
-                    type="text" 
-                    inputMode="decimal"
-                    value={receiptValue}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
-                        setReceiptValue(val);
-                      }
-                    }}
-                    onBlur={saveReceiptValue}
-                    className="bg-transparent border-none outline-none text-xs font-bold w-20 p-0 text-center"
-                    placeholder="0"
-                  />
-                </div>
-                <button 
-                  onClick={saveReceiptValue}
-                  className="text-gray-400 hover:text-green-600 transition-colors"
-                  title="حفظ قيمة الإيصال"
-                >
-                  <Save size={14} />
-                </button>
+              <div className="flex flex-col flex-1">
+                <span className="text-xs font-bold">{user.name}</span>
+                <span className="text-[10px] text-gray-400">{user.role === 'admin' ? 'مدير نظام' : 'موظف'}</span>
               </div>
               <button 
-                onClick={closeShift}
-                className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 transition-all border border-red-100"
+                onClick={handleLogout}
+                className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
+                title="تسجيل الخروج"
               >
-                <Square size={14} fill="currentColor" />
-                إغلاق الوردية
+                <LogOut size={16} />
               </button>
             </div>
-          ) : (
-            <button 
-              onClick={openShift}
-              className="bg-black text-white hover:bg-gray-800 px-4 py-2 rounded-md text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-black/10"
-            >
-              <Play size={14} fill="currentColor" className="rotate-180" />
-              فتح وردية جديدة
-            </button>
-          )}
+
+            {currentShift ? (
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                <div className="flex flex-col items-center md:items-start">
+                  <span className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">الوردية الحالية</span>
+                  <span className="text-xs font-mono font-medium">#{currentShift.id} • {new Date(currentShift.open_time).toLocaleTimeString('ar-EG')}</span>
+                </div>
+                <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 w-full sm:w-auto justify-center">
+                  <Receipt size={16} className="text-gray-400" />
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-bold text-gray-400">قيمة الإيصال</span>
+                    <input 
+                      type="text" 
+                      inputMode="decimal"
+                      value={receiptValue}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                          setReceiptValue(val);
+                        }
+                      }}
+                      onBlur={saveReceiptValue}
+                      className="bg-transparent border-none outline-none text-xs font-bold w-20 p-0 text-center"
+                      placeholder="0"
+                    />
+                  </div>
+                  <button 
+                    onClick={saveReceiptValue}
+                    className="text-gray-400 hover:text-green-600 transition-colors"
+                    title="حفظ قيمة الإيصال"
+                  >
+                    <Save size={14} />
+                  </button>
+                </div>
+                <button 
+                  onClick={closeShift}
+                  className="w-full sm:w-auto bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-4 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all border border-red-100"
+                >
+                  <Square size={14} fill="currentColor" />
+                  إغلاق الوردية
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={openShift}
+                className="w-full sm:w-auto bg-black text-white hover:bg-gray-800 px-4 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-black/10"
+              >
+                <Play size={14} fill="currentColor" className="rotate-180" />
+                فتح وردية جديدة
+              </button>
+            )}
+          </div>
         </div>
       </nav>
 
       {/* Main Content */}
-      <main className="flex-1 p-8 max-w-7xl mx-auto w-full">
+      <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <motion.div 
@@ -1225,12 +1243,12 @@ export default function App() {
                       ) : (
                         <div className="space-y-3">
                           {mealIngredients.map(ing => (
-                            <div key={ing.ingredient_id} className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border border-transparent hover:border-gray-200 transition-all">
+                            <div key={ing.ingredient_id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-gray-50 p-4 rounded-xl border border-transparent hover:border-gray-200 transition-all gap-3">
                               <div className="flex flex-col">
                                 <span className="text-sm font-bold">{ing.name}</span>
                                 <span className="text-[10px] text-gray-400">{ing.price} ج.م / وحدة</span>
                               </div>
-                              <div className="flex items-center gap-4">
+                              <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
                                 <div className="flex items-center gap-2">
                                   <input 
                                     type="text"
@@ -1242,11 +1260,11 @@ export default function App() {
                                         updateMealIngredientQty(ing.ingredient_id, val as any);
                                       }
                                     }}
-                                    className="w-20 bg-white border border-gray-200 rounded-lg px-3 py-2 text-center text-sm font-mono font-bold"
+                                    className="w-16 sm:w-20 bg-white border border-gray-200 rounded-lg px-2 py-2 text-center text-sm font-mono font-bold"
                                   />
                                   <span className="text-[10px] text-gray-400">وحدة</span>
                                 </div>
-                                <div className="w-24 text-left font-mono font-bold text-gray-600">
+                                <div className="w-20 sm:w-24 text-left font-mono font-bold text-gray-600 text-sm">
                                   {((parseFloat(ing.quantity as any) || 0) * (ing.price || 0)).toLocaleString()} ج.م
                                 </div>
                                 <button 
@@ -1320,8 +1338,8 @@ export default function App() {
                     ) : (
                       <div className="space-y-3">
                         {externalPurchases.map((p, idx) => (
-                          <div key={idx} className="flex gap-4 items-center bg-gray-50 p-4 rounded-xl border border-transparent hover:border-gray-200 transition-all">
-                            <div className="flex-1 space-y-1">
+                          <div key={idx} className="flex flex-col sm:flex-row gap-4 items-start sm:items-center bg-gray-50 p-4 rounded-xl border border-transparent hover:border-gray-200 transition-all">
+                            <div className="w-full sm:flex-1 space-y-1">
                                 <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">الوصف / البيان</label>
                                 <input 
                                   type="text"
@@ -1335,26 +1353,35 @@ export default function App() {
                                   className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
                                 />
                             </div>
-                            <div className="w-40 space-y-1">
+                            <div className="w-full sm:w-40 space-y-1">
                                 <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">المبلغ (ج.م)</label>
-                                <input 
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={p.amount}
-                                  onChange={(e) => {
-                                      const val = e.target.value;
-                                      if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
-                                          const newArr = [...externalPurchases];
-                                          newArr[idx].amount = val as any;
-                                          setExternalPurchases(newArr);
-                                      }
-                                  }}
-                                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono font-bold outline-none focus:ring-2 focus:ring-black"
-                                />
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={p.amount}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^-?\d*\.?\d*$/.test(val)) {
+                                            const newArr = [...externalPurchases];
+                                            newArr[idx].amount = val as any;
+                                            setExternalPurchases(newArr);
+                                        }
+                                    }}
+                                    className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono font-bold outline-none focus:ring-2 focus:ring-black"
+                                  />
+                                  <button 
+                                    onClick={() => setExternalPurchases(prev => prev.filter((_, i) => i !== idx))}
+                                    className="sm:hidden text-red-400 hover:text-red-600 p-2"
+                                    title="حذف البند"
+                                  >
+                                    <Trash2 size={20} />
+                                  </button>
+                                </div>
                             </div>
                             <button 
                               onClick={() => setExternalPurchases(prev => prev.filter((_, i) => i !== idx))}
-                              className="text-red-400 hover:text-red-600 p-2 self-end mt-1"
+                              className="hidden sm:block text-red-400 hover:text-red-600 p-2 self-end mt-1"
                               title="حذف البند"
                             >
                               <Trash2 size={20} />
@@ -1382,51 +1409,53 @@ export default function App() {
                 <p className="text-gray-500 text-sm">البيانات التاريخية والتقارير المؤرشفة.</p>
               </div>
 
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                <table className="w-full text-right border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50/50">
-                      <th className="px-6 py-4 col-header">رقم الوردية</th>
-                      <th className="px-6 py-4 col-header">التاريخ والوقت</th>
-                      <th className="px-6 py-4 col-header text-center">الأصناف المباعة</th>
-                      <th className="px-6 py-4 col-header text-left">الإيرادات</th>
-                      <th className="px-6 py-4 col-header text-left">المشتريات</th>
-                      <th className="px-6 py-4 col-header text-left">صافي الجرد</th>
-                      <th className="px-6 py-4 col-header text-left">قيمة الإيصال</th>
-                      <th className="px-6 py-4 col-header"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reports.map(report => (
-                      <tr key={report.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors group">
-                        <td className="px-6 py-4 font-mono font-bold text-sm">#{report.id}</td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-medium">{new Date(report.open_time).toLocaleDateString('ar-EG')}</span>
-                            <span className="text-[10px] text-gray-400 uppercase">{new Date(report.open_time).toLocaleTimeString('ar-EG')}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-[10px] font-bold">
-                            {report.items_sold_count || 0} صنف
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-left data-value font-bold text-green-600">+{report.total_revenue?.toLocaleString()}</td>
-                        <td className="px-6 py-4 text-left data-value font-bold text-red-600">-{report.total_purchases?.toLocaleString()}</td>
-                        <td className="px-6 py-4 text-left data-value font-bold">{(report.total_revenue - report.total_purchases).toLocaleString()}</td>
-                        <td className="px-6 py-4 text-left data-value font-bold text-blue-600">{report.receipt_value?.toLocaleString()}</td>
-                        <td className="px-6 py-4 text-center">
-                          <button 
-                            onClick={() => fetchReportDetails(report.id)}
-                            className="text-gray-400 hover:text-black transition-colors"
-                          >
-                            <ChevronLeft size={20} className="rotate-180" />
-                          </button>
-                        </td>
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right border-collapse min-w-[800px]">
+                    <thead>
+                      <tr className="bg-gray-50/50">
+                        <th className="px-6 py-4 col-header">رقم الوردية</th>
+                        <th className="px-6 py-4 col-header">التاريخ والوقت</th>
+                        <th className="px-6 py-4 col-header text-center">الأصناف المباعة</th>
+                        <th className="px-6 py-4 col-header text-left">الإيرادات</th>
+                        <th className="px-6 py-4 col-header text-left">المشتريات</th>
+                        <th className="px-6 py-4 col-header text-left">صافي الجرد</th>
+                        <th className="px-6 py-4 col-header text-left">قيمة الإيصال</th>
+                        <th className="px-6 py-4 col-header"></th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {reports.map(report => (
+                        <tr key={report.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors group">
+                          <td className="px-6 py-4 font-mono font-bold text-sm">#{report.id}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col text-right">
+                              <span className="text-sm font-medium">{new Date(report.open_time).toLocaleDateString('ar-EG')}</span>
+                              <span className="text-[10px] text-gray-400 uppercase">{new Date(report.open_time).toLocaleTimeString('ar-EG')}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-[10px] font-bold">
+                              {report.items_sold_count || 0} صنف
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-left data-value font-bold text-green-600">+{report.total_revenue?.toLocaleString()}</td>
+                          <td className="px-6 py-4 text-left data-value font-bold text-red-600">-{report.total_purchases?.toLocaleString()}</td>
+                          <td className="px-6 py-4 text-left data-value font-bold">{(report.total_revenue - report.total_purchases).toLocaleString()}</td>
+                          <td className="px-6 py-4 text-left data-value font-bold text-blue-600">{report.receipt_value?.toLocaleString()}</td>
+                          <td className="px-6 py-4 text-center">
+                            <button 
+                              onClick={() => fetchReportDetails(report.id)}
+                              className="text-gray-400 hover:text-black transition-colors"
+                            >
+                              <ChevronLeft size={20} className="rotate-180" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </motion.div>
           )}
@@ -1560,7 +1589,7 @@ export default function App() {
                 </button>
               </div>
               
-              <form onSubmit={saveProduct} className="p-8 space-y-6 overflow-y-auto flex-1">
+              <form onSubmit={saveProduct} className="p-4 md:p-8 space-y-6 overflow-y-auto flex-1">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">اسم المنتج</label>
                   <input 
@@ -1572,7 +1601,7 @@ export default function App() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">الفئة</label>
                     <select 
@@ -1599,7 +1628,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">سعر التكلفة (ج.م)</label>
                     <input 
@@ -1768,28 +1797,28 @@ export default function App() {
                     إلى {selectedReport.shift.close_time ? new Date(selectedReport.shift.close_time).toLocaleTimeString('ar-EG') : 'غير محدد'}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 no-print">
+                <div className="flex flex-col sm:flex-row items-center gap-2 no-print">
                   <button 
                     onClick={handleExportExcel}
-                    className="flex items-center gap-2 bg-green-50 text-green-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-green-100 transition-colors"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 bg-green-50 text-green-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-green-100 transition-colors"
                   >
                     <FileSpreadsheet size={18} /> اكسيل
                   </button>
                   <button 
                     onClick={handlePrint}
-                    className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-100 transition-colors"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-blue-100 transition-colors"
                   >
                     <Printer size={18} /> طباعة
                   </button>
-                  <button onClick={() => setIsReportModalOpen(false)} className="text-gray-400 hover:text-black transition-colors ml-2">
+                  <button onClick={() => setIsReportModalOpen(false)} className="hidden sm:block text-gray-400 hover:text-black transition-colors ml-2">
                     <X size={24} />
                   </button>
                 </div>
               </div>
               
-              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+              <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8">
                 {/* Summary Stats */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
                     <span className="text-[10px] text-green-600 font-bold uppercase tracking-widest">إجمالي الإيرادات</span>
                     <div className="text-xl font-mono font-bold text-green-700">{selectedReport.summary.total_revenue.toLocaleString()} ج.م</div>
@@ -1807,8 +1836,9 @@ export default function App() {
                 {/* Inventory Breakdown */}
                 <div className="space-y-4">
                   <h4 className="font-bold text-lg">تفاصيل الجرد</h4>
-                  <div className="border border-gray-100 rounded-2xl overflow-hidden">
-                    <table className="w-full text-right border-collapse">
+                  <div className="border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-right border-collapse min-w-[700px]">
                       <thead>
                         <tr className="bg-gray-50">
                           <th className="px-4 py-3 text-xs font-bold text-gray-400 uppercase text-right">الصنف</th>
@@ -1848,7 +1878,8 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
+          </motion.div>
           </div>
         )}
       </AnimatePresence>
@@ -1877,7 +1908,7 @@ export default function App() {
                 </button>
               </div>
               
-              <form onSubmit={saveEmployee} className="p-8 space-y-6 overflow-y-auto flex-1">
+              <form onSubmit={saveEmployee} className="p-4 md:p-8 space-y-6 overflow-y-auto flex-1">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">اسم الموظف / المستخدم</label>
                   <input 
@@ -1890,7 +1921,7 @@ export default function App() {
                   />
                 </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">اسم المستخدم</label>
                       <input 
@@ -1913,7 +1944,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">الدور الوظيفي</label>
                     <select 
@@ -2035,27 +2066,27 @@ function NavButton({ active, onClick, icon, label }: { active: boolean, onClick:
     <button 
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all",
+        "flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg text-sm font-bold transition-all w-full md:w-auto",
         active ? "bg-gray-100 text-black" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
       )}
     >
       {icon}
-      {label}
+      <span className="md:inline">{label}</span>
     </button>
   );
 }
 
 function StatCard({ label, value, icon, trend }: { label: string, value: string, icon: React.ReactNode, trend: string }) {
   return (
-    <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+    <div className="bg-white p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm transition-all hover:shadow-md">
       <div className="flex justify-between items-start mb-4">
         <span className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest">{label}</span>
-        <div className="w-8 h-8 bg-gray-50 rounded-full flex items-center justify-center">
+        <div className="w-8 h-8 bg-gray-50 rounded-full flex items-center justify-center shrink-0">
           {icon}
         </div>
       </div>
-      <div className="text-3xl font-mono font-bold mb-1 tracking-tight">{value}</div>
-      <div className="text-[10px] text-gray-400 font-medium">{trend}</div>
+      <div className="text-2xl md:text-3xl font-mono font-bold mb-1 tracking-tight truncate">{value}</div>
+      <div className="text-[10px] text-gray-400 font-medium line-clamp-1">{trend}</div>
     </div>
   );
 }
@@ -2088,7 +2119,7 @@ function InventoryInput({ value, onChange, onBlur, highlight, error }: { value: 
       }}
       placeholder="0"
       className={cn(
-        "w-full bg-gray-50 border-none rounded-md px-2 py-1 text-center font-mono text-sm focus:ring-2 focus:ring-black outline-none transition-all",
+        "w-full sm:w-20 bg-gray-50 border-none rounded-md px-1 sm:px-2 py-1 text-center font-mono text-xs sm:text-sm focus:ring-2 focus:ring-black outline-none transition-all",
         highlight && "bg-blue-50/50 text-blue-700 font-bold",
         error && "bg-red-50 text-red-600 font-bold ring-1 ring-red-200"
       )}
