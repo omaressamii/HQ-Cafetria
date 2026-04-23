@@ -109,7 +109,6 @@ interface Employee {
   username?: string;
   password?: string;
   role: string;
-  pin: string;
   can_manage_products: boolean;
   can_view_reports: boolean;
   can_manage_employees: boolean;
@@ -673,42 +672,50 @@ export default function App() {
               icon={<LayoutDashboard size={18} />}
               label="لوحة التحكم"
             />
-            <NavButton 
-              active={activeTab === 'products'} 
-              onClick={() => { setActiveTab('products'); setIsMobileMenuOpen(false); }}
-              icon={<Package size={18} />}
-              label="المنتجات"
-            />
-            <NavButton 
-              active={activeTab === 'calculator'} 
-              onClick={() => { setActiveTab('calculator'); setIsMobileMenuOpen(false); }}
-              icon={<CalcIcon size={18} />}
-              label="حاسبة الكراتين"
-            />
-            <NavButton 
-              active={activeTab === 'meal_calculator'} 
-              onClick={() => { setActiveTab('meal_calculator'); setIsMobileMenuOpen(false); }}
-              icon={<Calculator size={18} />}
-              label="حساب الوجبات"
-            />
-            <NavButton 
-              active={activeTab === 'purchases_calculator'} 
-              onClick={() => { setActiveTab('purchases_calculator'); setIsMobileMenuOpen(false); }}
-              icon={<Wallet size={18} />}
-              label="حساب المشتريات"
-            />
-            <NavButton 
-              active={activeTab === 'reports'} 
-              onClick={() => { setActiveTab('reports'); setIsMobileMenuOpen(false); }}
-              icon={<History size={18} />}
-              label="التقارير"
-            />
-            <NavButton 
-              active={activeTab === 'employees'} 
-              onClick={() => { setActiveTab('employees'); setIsMobileMenuOpen(false); }}
-              icon={<Users size={18} />}
-              label="الموظفين"
-            />
+            {user.permissions.can_manage_products && (
+              <>
+                <NavButton 
+                  active={activeTab === 'products'} 
+                  onClick={() => { setActiveTab('products'); setIsMobileMenuOpen(false); }}
+                  icon={<Package size={18} />}
+                  label="المنتجات"
+                />
+                <NavButton 
+                  active={activeTab === 'calculator'} 
+                  onClick={() => { setActiveTab('calculator'); setIsMobileMenuOpen(false); }}
+                  icon={<CalcIcon size={18} />}
+                  label="حاسبة الكراتين"
+                />
+                <NavButton 
+                  active={activeTab === 'meal_calculator'} 
+                  onClick={() => { setActiveTab('meal_calculator'); setIsMobileMenuOpen(false); }}
+                  icon={<Calculator size={18} />}
+                  label="حساب الوجبات"
+                />
+                <NavButton 
+                  active={activeTab === 'purchases_calculator'} 
+                  onClick={() => { setActiveTab('purchases_calculator'); setIsMobileMenuOpen(false); }}
+                  icon={<Wallet size={18} />}
+                  label="حساب المشتريات"
+                />
+              </>
+            )}
+            {user.permissions.can_view_reports && (
+              <NavButton 
+                active={activeTab === 'reports'} 
+                onClick={() => { setActiveTab('reports'); setIsMobileMenuOpen(false); }}
+                icon={<History size={18} />}
+                label="التقارير"
+              />
+            )}
+            {user.permissions.can_manage_employees && (
+              <NavButton 
+                active={activeTab === 'employees'} 
+                onClick={() => { setActiveTab('employees'); setIsMobileMenuOpen(false); }}
+                icon={<Users size={18} />}
+                label="الموظفين"
+              />
+            )}
           </div>
 
           <div className={cn(
@@ -968,7 +975,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'products' && (
+          {activeTab === 'products' && user.permissions.can_manage_products && (
             <motion.div 
               key="products"
               initial={{ opacity: 0, x: -20 }}
@@ -1034,7 +1041,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'employees' && (
+          {activeTab === 'employees' && user.permissions.can_manage_employees && (
             <motion.div 
               key="employees"
               initial={{ opacity: 0, y: 20 }}
@@ -1052,7 +1059,6 @@ export default function App() {
                     setEditingEmployee({
                       name: '',
                       role: 'staff',
-                      pin: '',
                       can_manage_products: false,
                       can_view_reports: false,
                       can_manage_employees: false
@@ -1129,9 +1135,9 @@ export default function App() {
                     </div>
                     <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
                       <div className="flex items-center gap-2 text-gray-400">
-                        <Key size={14} />
-                        <span className="text-xs font-mono font-bold tracking-widest">
-                          {emp.pin ? '••••' : 'لم يتم تعيين PIN'}
+                        <UserIcon size={14} />
+                        <span className="text-xs font-mono font-bold">
+                          {emp.username || 'بدون اسم مستخدم'}
                         </span>
                       </div>
                     </div>
@@ -1141,7 +1147,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'meal_calculator' && (
+          {activeTab === 'meal_calculator' && user.permissions.can_manage_products && (
             <motion.div 
               key="meal_calculator"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1285,7 +1291,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'purchases_calculator' && (
+          {activeTab === 'purchases_calculator' && user.permissions.can_manage_products && (
             <motion.div 
               key="purchases_calculator"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1396,7 +1402,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'reports' && (
+          {activeTab === 'reports' && user.permissions.can_view_reports && (
             <motion.div 
               key="reports"
               initial={{ opacity: 0, x: -20 }}
@@ -1460,7 +1466,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'calculator' && (
+          {activeTab === 'calculator' && user.permissions.can_manage_products && (
             <motion.div 
               key="calculator"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -1944,30 +1950,19 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">الدور الوظيفي</label>
-                    <select 
-                      value={editingEmployee?.role || 'staff'}
-                      onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, role: e.target.value } : null)}
-                      className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all appearance-none"
-                    >
-                      <option value="staff">موظف (Staff)</option>
-                      <option value="admin">مدير (Admin)</option>
-                    </select>
+                      <select 
+                        value={editingEmployee?.role || 'staff'}
+                        onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, role: e.target.value } : null)}
+                        className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all appearance-none"
+                      >
+                        <option value="staff">موظف (Staff)</option>
+                        <option value="admin">مدير (Admin)</option>
+                      </select>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">رمز الدخول (PIN)</label>
-                    <input 
-                      type="password"
-                      maxLength={4}
-                      value={editingEmployee?.pin || ''}
-                      onChange={(e) => setEditingEmployee(prev => prev ? { ...prev, pin: e.target.value } : null)}
-                      className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-black outline-none transition-all text-center tracking-[1em] font-bold"
-                      placeholder="••••"
-                    />
-                  </div>
-                </div>
 
                 <div className="space-y-4">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 block pb-2 border-b border-gray-100">صلاحيات الوصول</label>

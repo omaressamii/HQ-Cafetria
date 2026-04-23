@@ -419,7 +419,7 @@ async function startServer() {
 
   // Employee Management Endpoints
   app.get("/api/employees", (req, res) => {
-    const employees = db.prepare("SELECT id, name, username, role, pin, can_manage_products, can_view_reports, can_manage_employees FROM employees").all();
+    const employees = db.prepare("SELECT id, name, username, role, can_manage_products, can_view_reports, can_manage_employees FROM employees").all();
     res.json(employees);
   });
 
@@ -448,22 +448,22 @@ async function startServer() {
   });
 
   app.post("/api/employees", (req, res) => {
-    const { name, username, password, role, pin, can_manage_products, can_view_reports, can_manage_employees } = req.body;
+    const { name, username, password, role, can_manage_products, can_view_reports, can_manage_employees } = req.body;
     const result = db.prepare(`
-      INSERT INTO employees (name, username, password, role, pin, can_manage_products, can_view_reports, can_manage_employees)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, username, password, role, pin, can_manage_products ? 1 : 0, can_view_reports ? 1 : 0, can_manage_employees ? 1 : 0);
+      INSERT INTO employees (name, username, password, role, can_manage_products, can_view_reports, can_manage_employees)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(name, username, password, role, can_manage_products ? 1 : 0, can_view_reports ? 1 : 0, can_manage_employees ? 1 : 0);
     res.json({ success: true, id: result.lastInsertRowid });
   });
 
   app.put("/api/employees/:id", (req, res) => {
     const { id } = req.params;
-    const { name, username, password, role, pin, can_manage_products, can_view_reports, can_manage_employees } = req.body;
+    const { name, username, password, role, can_manage_products, can_view_reports, can_manage_employees } = req.body;
     db.prepare(`
       UPDATE employees 
-      SET name = ?, username = ?, password = ?, role = ?, pin = ?, can_manage_products = ?, can_view_reports = ?, can_manage_employees = ?
+      SET name = ?, username = ?, password = ?, role = ?, can_manage_products = ?, can_view_reports = ?, can_manage_employees = ?
       WHERE id = ?
-    `).run(name, username, password, role, pin, can_manage_products ? 1 : 0, can_view_reports ? 1 : 0, can_manage_employees ? 1 : 0, id);
+    `).run(name, username, password, role, can_manage_products ? 1 : 0, can_view_reports ? 1 : 0, can_manage_employees ? 1 : 0, id);
     res.json({ success: true });
   });
 
